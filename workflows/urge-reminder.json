@@ -1,0 +1,112 @@
+{
+  "client_token": "1745568002",
+  "title": "任务催办提醒",
+  "steps": [
+    {
+      "id": "trigger_1",
+      "type": "ReminderTrigger",
+      "title": "截止时间前一天提醒",
+      "children": { "links": [] },
+      "next": "branch_1",
+      "data": {
+        "table_name": "任务主表",
+        "field_name": "截止时间",
+        "offset": 1,
+        "unit": "DAY",
+        "hour": 9,
+        "minute": 0,
+        "condition_list": null
+      }
+    },
+    {
+      "id": "branch_1",
+      "type": "IfElseBranch",
+      "title": "检查执行者类型是否为人类",
+      "children": {
+        "links": [
+          { "kind": "if_true", "to": "action_1", "label": "branch_1", "desc": "执行者是人类" },
+          { "kind": "if_false", "to": "action_end", "label": "branch_2", "desc": "执行者是Agent" }
+        ]
+      },
+      "next": null,
+      "data": {
+        "condition": {
+          "conjunction": "or",
+          "conditions": [
+            {
+              "conjunction": "and",
+              "conditions": [
+                {
+                  "left_value": { "value_type": "ref", "value": "$.trigger_1.YOUR_EXECUTOR_TYPE_FIELD_ID" },
+                  "operator": "is",
+                  "right_value": [{ "value_type": "option", "value": { "name": "human" } }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "action_1",
+      "type": "SetRecordAction",
+      "title": "更新最后催办时间",
+      "children": { "links": [] },
+      "next": "action_notify",
+      "data": {
+        "table_name": "任务主表",
+        "ref_info": { "step_id": "trigger_1" },
+        "field_values": [
+          { 
+            "field_name": "最后催办时间", 
+            "value": [{ "value_type": "date", "value": "now" }] 
+          }
+        ]
+      }
+    },
+    {
+      "id": "action_notify",
+      "type": "LarkMessageAction",
+      "title": "发送催办通知",
+      "children": { "links": [] },
+      "next": null,
+      "data": {
+        "receiver": [{ "value_type": "ref", "value": "$.trigger_1.YOUR_REVIEWER_FIELD_ID" }],
+        "send_to_everyone": false,
+        "title": [{ "value_type": "text", "value": "任务催办提醒" }],
+        "content": [
+          { "value_type": "text", "value": "您有一个任务即将截止：\n\n任务：" },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_TITLE_FIELD_ID" },
+          { "value_type": "text", "value": "\n截止时间：" },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_DEADLINE_FIELD_ID" },
+          { "value_type": "text", "value": "\n\n请及时处理。" }
+        ],
+        "btn_list": [
+          {
+            "text": "查看任务",
+            "btn_action": "openLink",
+            "link": [{ "value_type": "ref", "value": "$.trigger_1.recordLink" }]
+          }
+        ]
+      }
+    },
+    {
+      "id": "action_end",
+      "type": "LarkMessageAction",
+      "title": "Agent任务跳过催办",
+      "children": { "links": [] },
+      "next": null,
+      "data": {
+        "receiver": [{ "value_type": "ref", "value": "$.trigger_1.recordCreatedUser" }],
+        "send_to_everyone": false,
+        "title": [{ "value_type": "text", "value": "Agent任务自动执行中" }],
+        "content": [
+          { "value_type": "text", "value": "任务 " },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_TITLE_FIELD_ID" },
+          { "value_type": "text", "value": " 由Agent执行中，无需催办。" }
+        ],
+        "btn_list": []
+      }
+    }
+  ]
+}

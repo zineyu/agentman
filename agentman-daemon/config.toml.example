@@ -1,0 +1,11 @@
+runtime_id = "agentman-local"
+runtime_name = "Local Development Daemon"
+base_url = "https://open.feishu.cn"
+base_token = "YOUR_BASE_TOKEN_HERE"
+app_id = "YOUR_APP_ID_HERE"
+app_secret = "YOUR_APP_SECRET_HERE"
+poll_interval_secs = 30
+heartbeat_interval_secs = 60
+max_concurrent_tasks = 3
+workspace_dir = "./workspace"
+log_level = "info"

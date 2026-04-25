@@ -1,0 +1,58 @@
+[package]
+name = "agentman-daemon"
+version = "0.1.0"
+edition = "2021"
+authors = ["Agentman Team"]
+description = "Agent task management daemon for Lark Base"
+license = "MIT"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Scheduling
+tokio-cron-scheduler = "0.13"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Process management (included in tokio full features)
+
+# UUID generation
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# TOML parsing
+toml = "0.8"
+
+# Hostname detection
+hostname = "0.4"
+
+# Local IP address detection
+local-ip-address = "0.6"
+
+[dev-dependencies]
+tokio-test = "0.4"
+mockito = "1"
+tempfile = "3"
+
+[[bin]]
+name = "agentman-daemon"
+path = "src/main.rs"

@@ -1,0 +1,100 @@
+{
+  "client_token": "1745568001",
+  "title": "审核驳回自动重试",
+  "steps": [
+    {
+      "id": "trigger_1",
+      "type": "SetRecordTrigger",
+      "title": "监听审核驳回理由变更",
+      "children": { "links": [] },
+      "next": "branch_1",
+      "data": {
+        "table_name": "任务主表",
+        "field_watch_info": [
+          { "field_name": "审核驳回理由", "operator": "isNotEmpty" }
+        ],
+        "trigger_control_list": []
+      }
+    },
+    {
+      "id": "branch_1",
+      "type": "IfElseBranch",
+      "title": "检查状态是否为待审核",
+      "children": {
+        "links": [
+          { "kind": "if_true", "to": "action_1", "label": "branch_1", "desc": "状态为待审核" },
+          { "kind": "if_false", "to": "action_end", "label": "branch_2", "desc": "状态不为待审核" }
+        ]
+      },
+      "next": null,
+      "data": {
+        "condition": {
+          "conjunction": "or",
+          "conditions": [
+            {
+              "conjunction": "and",
+              "conditions": [
+                {
+                  "left_value": { "value_type": "ref", "value": "$.trigger_1.YOUR_STATUS_FIELD_ID" },
+                  "operator": "is",
+                  "right_value": [{ "value_type": "option", "value": { "id": "YOUR_PENDING_REVIEW_OPTION_ID", "name": "待审核" } }]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "action_1",
+      "type": "SetRecordAction",
+      "title": "重置状态为待办",
+      "children": { "links": [] },
+      "next": "action_notify",
+      "data": {
+        "table_name": "任务主表",
+        "ref_info": { "step_id": "trigger_1" },
+        "field_values": [
+          { "field_name": "任务状态", "value": [{ "value_type": "option", "value": { "id": "YOUR_TODO_OPTION_ID", "name": "待办" } }] }
+        ]
+      }
+    },
+    {
+      "id": "action_notify",
+      "type": "LarkMessageAction",
+      "title": "通知任务创建人",
+      "children": { "links": [] },
+      "next": null,
+      "data": {
+        "receiver": [{ "value_type": "ref", "value": "$.trigger_1.recordCreatedUser" }],
+        "send_to_everyone": false,
+        "title": [{ "value_type": "text", "value": "任务审核驳回" }],
+        "content": [
+          { "value_type": "text", "value": "任务 " },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_TITLE_FIELD_ID" },
+          { "value_type": "text", "value": " 被驳回，已自动重置为待办状态，Daemon将重新执行。\n驳回理由: " },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_REJECTION_REASON_FIELD_ID" }
+        ],
+        "btn_list": []
+      }
+    },
+    {
+      "id": "action_end",
+      "type": "LarkMessageAction",
+      "title": "记录日志",
+      "children": { "links": [] },
+      "next": null,
+      "data": {
+        "receiver": [{ "value_type": "ref", "value": "$.trigger_1.recordCreatedUser" }],
+        "send_to_everyone": false,
+        "title": [{ "value_type": "text", "value": "审核驳回提醒" }],
+        "content": [
+          { "value_type": "text", "value": "任务 " },
+          { "value_type": "ref", "value": "$.trigger_1.YOUR_TITLE_FIELD_ID" },
+          { "value_type": "text", "value": " 的审核驳回理由已更新，但任务状态不是待审核，未自动重置。" }
+        ],
+        "btn_list": []
+      }
+    }
+  ]
+}
