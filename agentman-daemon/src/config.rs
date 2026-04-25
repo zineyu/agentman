@@ -17,8 +17,6 @@ pub struct DaemonConfig {
     pub runtime_id: String,
     pub runtime_name: String,
     pub base_url: String,
-    #[serde(default)]
-    pub base_token: String,
     pub app_id: String,
     pub app_secret: String,
     pub poll_interval_secs: u64,
@@ -34,7 +32,6 @@ impl Default for DaemonConfig {
             runtime_id: generate_stable_runtime_id(),
             runtime_name: "Agentman Daemon".to_string(),
             base_url: "https://open.feishu.cn".to_string(),
-            base_token: String::new(),
             app_id: String::new(),
             app_secret: String::new(),
             poll_interval_secs: 30,
@@ -101,7 +98,6 @@ mod tests {
         assert!(config.runtime_id.starts_with("agentman-"));
         assert_eq!(config.runtime_name, "Agentman Daemon");
         assert_eq!(config.base_url, "https://open.feishu.cn");
-        assert!(config.base_token.is_empty());
         assert!(config.app_id.is_empty());
         assert!(config.app_secret.is_empty());
         assert_eq!(config.poll_interval_secs, 30);
@@ -114,7 +110,6 @@ mod tests {
     #[test]
     fn test_config_validation_success() {
         let config = DaemonConfig {
-            base_token: "token123".to_string(),
             app_id: "app123".to_string(),
             app_secret: "secret123".to_string(),
             ..Default::default()
@@ -125,7 +120,6 @@ mod tests {
     #[test]
     fn test_config_validation_missing_app_id() {
         let config = DaemonConfig {
-            base_token: "token123".to_string(),
             app_secret: "secret123".to_string(),
             ..Default::default()
         };
@@ -138,7 +132,6 @@ mod tests {
     #[test]
     fn test_config_validation_missing_app_secret() {
         let config = DaemonConfig {
-            base_token: "token123".to_string(),
             app_id: "app123".to_string(),
             ..Default::default()
         };

@@ -13,7 +13,6 @@ fn create_test_config(base_url: &str) -> DaemonConfig {
         runtime_id: "test-runtime-001".to_string(),
         runtime_name: "Test Runtime".to_string(),
         base_url: base_url.to_string(),
-        base_token: "BascXXXXXXXXXXXXXXXX".to_string(),
         app_id: "cli_xxxxxxxxxxxxxxxx".to_string(),
         app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string(),
         poll_interval_secs: 30,
