@@ -33,6 +33,9 @@ pub enum BaseClientError {
 
     #[error("Record not found")]
     RecordNotFound,
+
+    #[error("Base not found: no accessible Base named 'Agentman任务管理'")]
+    BaseNotFound,
 }
 
 /// 缓存的token信息
@@ -166,12 +169,44 @@ impl BaseClient {
         *cache = None;
     }
 
+    async fn discover_base(&self) -> Result<String, BaseClientError> {
+        let path = "/open-apis/bitable/v1/apps";
+
+        let response = self
+            .api_request(reqwest::Method::GET, path, None, None)
+            .await?;
+
+        let apps = response
+            .get("data")
+            .and_then(|d| d.get("apps"))
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        for app in apps {
+            if let (Some(name), Some(token)) = (
+                app.get("name").and_then(|v| v.as_str()),
+                app.get("app_token").and_then(|v| v.as_str()),
+            ) {
+                if name == "Agentman任务管理" {
+                    info!("Discovered base token for '{}'", name);
+                    return Ok(token.to_string());
+                }
+            }
+        }
+
+        Err(BaseClientError::BaseNotFound)
+    }
+
     /// 初始化表ID，通过查询Base表列表获取
     pub async fn init_table_ids(&self) -> Result<(), BaseClientError> {
-        let path = format!(
-            "/open-apis/bitable/v1/apps/{}/tables",
-            self.config.base_token
-        );
+        let base_token = if self.config.base_token.is_empty() {
+            self.discover_base().await?
+        } else {
+            self.config.base_token.clone()
+        };
+
+        let path = format!("/open-apis/bitable/v1/apps/{}/tables", base_token);
 
         let response = self
             .api_request(reqwest::Method::GET, &path, None, None)

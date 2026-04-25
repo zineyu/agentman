@@ -69,9 +69,6 @@ impl DaemonConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.base_token.is_empty() {
-            return Err(ConfigError::MissingField("base_token".to_string()));
-        }
         if self.app_id.is_empty() {
             return Err(ConfigError::MissingField("app_id".to_string()));
         }
@@ -122,19 +119,6 @@ mod tests {
             ..Default::default()
         };
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_config_validation_missing_base_token() {
-        let config = DaemonConfig {
-            app_id: "app123".to_string(),
-            app_secret: "secret123".to_string(),
-            ..Default::default()
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.to_string().contains("base_token"));
     }
 
     #[test]
