@@ -25,6 +25,7 @@ pub struct DaemonConfig {
     pub max_concurrent_tasks: usize,
     pub workspace_dir: String,
     pub log_level: String,
+    pub language: String,
 }
 
 impl Default for DaemonConfig {
@@ -41,6 +42,7 @@ impl Default for DaemonConfig {
             max_concurrent_tasks: 3,
             workspace_dir: "./workspace".to_string(),
             log_level: "info".to_string(),
+            language: "en".to_string(),
         }
     }
 }
@@ -80,6 +82,15 @@ impl DaemonConfig {
         }
         Ok(())
     }
+
+    /// Set the locale based on the configured language
+    pub fn set_locale(&self) {
+        let locale = match self.language.as_str() {
+            "zh" | "zh-CN" | "zh-Hans" => "zh",
+            _ => "en",
+        };
+        rust_i18n::set_locale(locale);
+    }
 }
 
 /// Generate a stable runtime ID based on hostname
@@ -110,6 +121,7 @@ mod tests {
         assert_eq!(config.max_concurrent_tasks, 3);
         assert_eq!(config.workspace_dir, "./workspace");
         assert_eq!(config.log_level, "info");
+        assert_eq!(config.language, "en");
     }
 
     #[test]
