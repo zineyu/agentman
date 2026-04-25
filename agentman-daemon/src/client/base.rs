@@ -56,6 +56,7 @@ pub struct BaseClient {
     config: DaemonConfig,
     token_cache: Arc<RwLock<Option<TokenInfo>>>,
     table_ids: Arc<RwLock<TableIds>>,
+    runtime_record_id: Arc<RwLock<Option<String>>>,
 }
 
 impl BaseClient {
@@ -71,6 +72,7 @@ impl BaseClient {
             config: config.clone(),
             token_cache: Arc::new(RwLock::new(None)),
             table_ids: Arc::new(RwLock::new(TableIds::default())),
+            runtime_record_id: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -535,6 +537,12 @@ impl BaseClient {
         }
 
         let record = &items[0];
+        
+        if let Some(record_id) = record.get("record_id").and_then(|v| v.as_str()) {
+            let mut cached_id = self.runtime_record_id.write().await;
+            *cached_id = Some(record_id.to_string());
+        }
+        
         let fields = record.get("fields").cloned().unwrap_or_default();
 
         let runtime_info = RuntimeInfo {
@@ -583,8 +591,18 @@ impl BaseClient {
             }
         });
 
-        self.api_request(reqwest::Method::POST, &path, Some(body), None)
+        let response = self.api_request(reqwest::Method::POST, &path, Some(body), None)
             .await?;
+
+        if let Some(record_id) = response
+            .get("data")
+            .and_then(|d| d.get("record"))
+            .and_then(|r| r.get("record_id"))
+            .and_then(|v| v.as_str())
+        {
+            let mut cached_id = self.runtime_record_id.write().await;
+            *cached_id = Some(record_id.to_string());
+        }
 
         info!("{}", rust_i18n::t!("base_client.registered_runtime", id = runtime_info.runtime_id));
 
@@ -593,43 +611,57 @@ impl BaseClient {
 
     /// 更新运行时心跳
     pub async fn update_heartbeat(&self, runtime_info: &RuntimeInfo) -> Result<(), BaseClientError> {
-        // 先查找运行时记录
-        let filter = format!("CurrentValue.[运行时ID]=\"{}\"", runtime_info.runtime_id);
+        let record_id = {
+            let cached_id = self.runtime_record_id.read().await;
+            cached_id.clone()
+        };
 
-        let path = format!(
-            "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.config.base_token, self.runtime_table_id().await
-        );
+        let record_id = match record_id {
+            Some(id) => id,
+            None => {
+                let filter = format!("CurrentValue.[运行时ID]=\"{}\"", runtime_info.runtime_id);
 
-        let query = vec![("filter", filter), ("page_size", "1".to_string())];
+                let path = format!(
+                    "/open-apis/bitable/v1/apps/{}/tables/{}/records",
+                    self.config.base_token, self.runtime_table_id().await
+                );
 
-        let response = self
-            .api_request(reqwest::Method::GET, &path, None, Some(query))
-            .await?;
+                let query = vec![("filter", filter), ("page_size", "1".to_string())];
 
-        let items = response
-            .get("data")
-            .and_then(|d| d.get("items"))
-            .and_then(|i| i.as_array())
-            .cloned()
-            .unwrap_or_default();
+                let response = self
+                    .api_request(reqwest::Method::GET, &path, None, Some(query))
+                    .await?;
 
-        if items.is_empty() {
-            // 运行时记录不存在，先注册
-            warn!(
-                "{}",
-                rust_i18n::t!(
-                    "base_client.runtime_not_found_registering",
-                    id = runtime_info.runtime_id
-                )
-            );
-            return self.register_runtime(runtime_info).await;
-        }
+                let items = response
+                    .get("data")
+                    .and_then(|d| d.get("items"))
+                    .and_then(|i| i.as_array())
+                    .cloned()
+                    .unwrap_or_default();
 
-        let record_id = items[0]
-            .get("record_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+                if items.is_empty() {
+                    warn!(
+                        "{}",
+                        rust_i18n::t!(
+                            "base_client.runtime_not_found_registering",
+                            id = runtime_info.runtime_id
+                        )
+                    );
+                    return self.register_runtime(runtime_info).await;
+                }
+
+                let id = items[0]
+                    .get("record_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let mut cached_id = self.runtime_record_id.write().await;
+                *cached_id = Some(id.clone());
+
+                id
+            }
+        };
 
         let update_path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
