@@ -38,17 +38,17 @@ It enables AI coding agents (Claude Code, GitHub Copilot/Codex, OpenCode, Cursor
 |  +----------------+  +----------------+  +----------------+   |
 |  | TaskExecutor   |  | Heartbeat      |  | BaseClient     |   |
 |  |   - Poll loop  |  |   - 30-60s     |  |   - Token cache|   |
-|  |   - Git ops    |  |   - Register   |  |   - Retry(3x)  |   |
-|  |   - Agent exec |  |   - Status     |  |   - 6 methods  |   |
+|  |   - Agent exec |  |   - Register   |  |   - Retry(3x)  |   |
+|  |   - Retry      |  |   - Status     |  |   - 6 methods  |   |
 |  +--------+-------+  +--------+-------+  +--------+-------+   |
 |           |                   |                     |           |
 |           v                   v                     v           |
 |  +----------------+  +----------------+  +----------------+   |
-|  | GitManager     |  | AgentFactory   |  | WorkspaceMgr   |   |
-|  |   - clone      |  |   - claude     |  |   - per-task   |   |
-|  |   - checkout   |  |   - codex      |  |   - isolated   |   |
-|  |   - pull       |  |   - opencode   |  |                |   |
-|  |   - commit     |  |   - cursor     |  |                |   |
+|  | WorkspaceMgr   |  | AgentFactory   |  | Config/i18n    |   |
+|  |   - per-task   |  |   - claude     |  |   - TOML       |   |
+|  |   - isolated   |  |   - codex      |  |   - en/zh      |   |
+|  |                |  |   - opencode   |  |                |   |
+|  |                |  |   - cursor     |  |                |   |
 |  +----------------+  +----------------+  +----------------+   |
 +---------------------------------------------------------------+
             |
@@ -71,17 +71,32 @@ cd agentman/agentman-daemon
 
 # 2. Create configuration
 cat > config.toml << 'EOF'
-runtime_id = "agentman-$(uuidgen)"
+# Daemon identity (optional - auto-generated from hostname if omitted)
 runtime_name = "Production Daemon #1"
+
+# Lark OpenAPI endpoints
 base_url = "https://open.feishu.cn"
 base_token = "YOUR_BASE_TOKEN_HERE"
+
+# Lark App credentials (from Developer Console)
 app_id = "cli_xxxxxxxxxxxxxxxx"
 app_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# Polling and heartbeat intervals (seconds)
 poll_interval_secs = 30
 heartbeat_interval_secs = 60
+
+# Concurrency control
 max_concurrent_tasks = 3
+
+# Workspace directory for task outputs
 workspace_dir = "./workspace"
+
+# Logging level: trace, debug, info, warn, error
 log_level = "info"
+
+# Interface language: en, zh
+language = "en"
 EOF
 
 # 3. Build and run
@@ -98,16 +113,16 @@ cargo run -- --register
 |---------|-------------|
 | **Auto Agent Detection** | Automatically detects installed Agent CLIs (claude, codex, opencode, cursor) in PATH |
 | **Task Pre-allocation** | Tasks are pre-allocated to specific Daemon runtimes via Lark Base link fields |
-| **Git Integration** | Automatic clone + branch checkout per task; supports retry with pull |
 | **Real-time Streaming** | Execution logs stream back to Lark Base every 10 seconds via background flush |
 | **Status Workflow** | 待办 → 进行中 → 待审核 → 已完成 (Todo → In Progress → Pending Review → Completed) |
 | **Review Rejection Retry** | Auto-retry up to 3 times when review is rejected, with rejection reason appended as context |
 | **Urge Reminder Filtering** | Agent tasks skip urge reminders; human tasks receive notifications via Base workflow |
 | **Heartbeat Registration** | Daemon self-registers in Runtimes table with hostname, IP, OS, available agents |
-| **Execution History** | Every execution attempt logged to ExecutionLogs table with output, commit hash, timing |
+| **Execution History** | Every execution attempt logged to ExecutionLogs table with output, timing |
 | **Token Caching** | Lark tenant_access_token cached with 5-minute pre-expiry refresh |
 | **Retry Logic** | Exponential backoff retry (3x) for network errors, rate limits, and token expiry |
 | **CLI Modes** | Supports `--once` (single execution) and continuous loop modes; `--register` for initial setup |
+| **i18n Support** | Multi-language interface (English / 中文) with configurable language setting |
 
 ### Tech Stack
 
@@ -144,9 +159,8 @@ agentman/
 │       │   ├── runtime.rs       # RuntimeInfo, RuntimeStatus
 │       │   └── execution.rs     # ExecutionLog, ExecutionStatus, TriggerMode
 │       ├── git/
-│       │   ├── mod.rs           # GitManager (clone, checkout, pull, commit)
-│       │   ├── workspace.rs     # WorkspaceManager (per-task dirs)
-│       │   └── tests.rs
+│       │   ├── mod.rs           # Git utilities (deprecated)
+│       │   └── workspace.rs     # WorkspaceManager (per-task dirs)
 │       ├── agent/
 │       │   ├── mod.rs           # AgentAdapter trait + ExecutionResult
 │       │   ├── cli_adapter.rs   # CommandLineAdapter for CLIs
@@ -226,7 +240,7 @@ cargo test agent::tests
 cargo test git::tests
 ```
 
-Current test coverage: **27 tests** (21 unit + 6 integration) all passing.
+Current test coverage: **24 tests** (18 unit + 6 integration) all passing.
 
 ### License
 
@@ -241,7 +255,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 Agentman 是一个基于 Rust 的守护进程，连接飞书多维表格（Lark Base）实现 Agent 任务自治管理。与传统需要后端服务器的任务管理系统不同，Agentman 采用 **Lark Base 直连架构** —— 守护进程通过 OpenAPI 直接读写飞书多维表格，无需中间后端，轻量、无状态、易于部署。
 
-它支持 AI 编程 Agent（Claude Code、GitHub Copilot/Codex、OpenCode、Cursor）自动从飞书表格领取任务，在隔离的 Git 工作区中执行，并实时回传执行结果。
+它支持 AI 编程 Agent（Claude Code、GitHub Copilot/Codex、OpenCode、Cursor）自动从飞书表格领取任务，在隔离的工作区中执行，并实时回传执行结果。
 
 ### 架构设计
 
@@ -262,17 +276,17 @@ Agentman 是一个基于 Rust 的守护进程，连接飞书多维表格（Lark 
 |  +----------------+  +----------------+  +----------------+   |
 |  | 任务执行器      |  | 心跳服务        |  | Base客户端     |   |
 |  |   - 轮询循环    |  |   - 30-60秒    |  |   - Token缓存  |   |
-|  |   - Git操作    |  |   - 自动注册    |  |   - 3次重试    |   |
-|  |   - Agent执行  |  |   - 状态上报    |  |   - 6个方法    |   |
+|  |   - Agent执行  |  |   - 自动注册    |  |   - 3次重试    |   |
+|  |   - 重试机制    |  |   - 状态上报    |  |   - 6个方法    |   |
 |  +--------+-------+  +--------+-------+  +--------+-------+   |
 |           |                   |                     |           |
 |           v                   v                     v           |
 |  +----------------+  +----------------+  +----------------+   |
-|  | Git管理器      |  | Agent工厂      |  | 工作区管理器   |   |
-|  |   - 克隆       |  |   - claude     |  |   - 按任务隔离 |   |
-|  |   - 切换分支   |  |   - codex      |  |   - 自动清理   |   |
-|  |   - 拉取更新   |  |   - opencode   |  |                |   |
-|  |   - 获取提交   |  |   - cursor     |  |                |   |
+|  | 工作区管理器   |  | Agent工厂      |  | 配置/i18n      |   |
+|  |   - 按任务隔离 |  |   - claude     |  |   - TOML       |   |
+|  |   - 自动清理   |  |   - codex      |  |   - 中英文     |   |
+|  |                |  |   - opencode   |  |                |   |
+|  |                |  |   - cursor     |  |                |   |
 |  +----------------+  +----------------+  +----------------+   |
 +---------------------------------------------------------------+
             |
@@ -295,17 +309,32 @@ cd agentman/agentman-daemon
 
 # 2. 创建配置文件
 cat > config.toml << 'EOF'
-runtime_id = "agentman-$(uuidgen)"
+# 守护进程标识（可选 - 省略时自动从主机名生成）
 runtime_name = "生产环境守护进程 #1"
+
+# 飞书 OpenAPI 地址
 base_url = "https://open.feishu.cn"
 base_token = "YOUR_BASE_TOKEN_HERE"
+
+# 飞书应用凭证（从开发者后台获取）
 app_id = "cli_xxxxxxxxxxxxxxxx"
 app_secret = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# 轮询和心跳间隔（秒）
 poll_interval_secs = 30
 heartbeat_interval_secs = 60
+
+# 并发控制
 max_concurrent_tasks = 3
+
+# 任务输出工作目录
 workspace_dir = "./workspace"
+
+# 日志级别：trace, debug, info, warn, error
 log_level = "info"
+
+# 界面语言：en, zh
+language = "zh"
 EOF
 
 # 3. 构建并运行
@@ -322,16 +351,16 @@ cargo run -- --register
 |------|------|
 | **自动Agent检测** | 自动检测 PATH 中的 Agent CLI（claude, codex, opencode, cursor） |
 | **任务预分配** | 通过飞书表格关联字段将任务预分配给特定 Daemon 运行时 |
-| **Git集成** | 每个任务自动克隆仓库 + 切换分支；重试时自动拉取更新 |
 | **实时日志流** | 执行日志每10秒通过后台刷新流式回写到飞书表格 |
 | **状态工作流** | 待办 → 进行中 → 待审核 → 已完成 |
 | **审核驳回重试** | 审核驳回后自动重试（最多3次），驳回理由自动追加到任务描述 |
 | **催办提醒过滤** | Agent 任务跳过催办提醒；人工任务通过 Base 工作流接收通知 |
 | **心跳注册** | Daemon 自动在运行时表注册，上报主机名、IP、操作系统、可用Agent |
-| **执行历史** | 每次执行尝试记录到执行记录表，包含输出、提交哈希、耗时 |
+| **执行历史** | 每次执行尝试记录到执行记录表，包含输出、耗时 |
 | **Token缓存** | Lark tenant_access_token 缓存，过期前5分钟自动刷新 |
 | **重试机制** | 网络错误、速率限制、Token过期均支持指数退避重试（最多3次） |
 | **CLI模式** | 支持 `--once`（单次执行）和连续轮询模式；`--register` 首次注册 |
+| **多语言支持** | 支持英文/中文界面，可通过配置切换语言 |
 
 ### 技术栈
 
@@ -368,9 +397,8 @@ agentman/
 │       │   ├── runtime.rs       # RuntimeInfo, RuntimeStatus
 │       │   └── execution.rs     # ExecutionLog, ExecutionStatus, TriggerMode
 │       ├── git/
-│       │   ├── mod.rs           # GitManager（克隆、切换、拉取、提交）
-│       │   ├── workspace.rs     # WorkspaceManager（按任务隔离目录）
-│       │   └── tests.rs
+│       │   ├── mod.rs           # Git 工具（已弃用）
+│       │   └── workspace.rs     # WorkspaceManager（按任务隔离目录）
 │       ├── agent/
 │       │   ├── mod.rs           # AgentAdapter trait + ExecutionResult
 │       │   ├── cli_adapter.rs   # 命令行Agent适配器
@@ -447,10 +475,9 @@ cargo test -- --nocapture
 # 运行特定模块
 cargo test config::tests
 cargo test agent::tests
-cargo test git::tests
 ```
 
-当前测试覆盖：**27个测试**（21个单元测试 + 6个集成测试）全部通过。
+当前测试覆盖：**24个测试**（18个单元测试 + 6个集成测试）全部通过。
 
 ### 开源协议
 
