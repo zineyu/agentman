@@ -11,6 +11,9 @@ daemon:
   no_existing_runtime: "未找到现有运行时，正在注册新运行时..."
   once_mode: "以单次模式运行"
   start_main_loop: "启动主循环"
+  received_shutdown_signal: "收到关闭信号，正在停止执行器..."
+  executor_shutdown_error: "等待执行器关闭时出错: {error}"
+  failed_update_status: "更新运行时状态为离线失败: {error}"
   shutting_down: "Agentman Daemon 正在关闭..."
 
 # Base client
@@ -47,6 +50,7 @@ base_client:
 task_executor:
   executing_once_mode: "执行单次模式任务"
   start_execution_loop: "启动任务执行循环"
+  shutdown_requested: "收到关闭请求，停止执行循环"
   error_processing_tasks: "处理任务时出错: {error}"
   found_pending_tasks: "找到 {count} 个待办任务"
   processing_task: "正在处理任务 {id}: {name}"

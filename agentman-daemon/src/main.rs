@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::info;
+use tracing::{info, warn};
 
 rust_i18n::i18n!("locales", fallback = "en");
 
@@ -9,7 +9,7 @@ use agentman_daemon::{
     client::BaseClient,
     config::DaemonConfig,
     heartbeat::HeartbeatService,
-    models::{FromConfig, RuntimeInfo},
+    models::{FromConfig, RuntimeInfo, RuntimeStatus},
     task_executor::TaskExecutor,
 };
 
@@ -74,16 +74,34 @@ async fn main() -> anyhow::Result<()> {
     let heartbeat = HeartbeatService::new(client.clone(), runtime.clone(), &config);
     heartbeat.start().await?;
 
-    let executor = TaskExecutor::new(client.clone(), &config);
+    let executor = Arc::new(TaskExecutor::new(client.clone(), &config));
 
     if cli.once {
         info!("{}", rust_i18n::t!("daemon.once_mode"));
         executor.run_once().await?;
     } else {
         info!("{}", rust_i18n::t!("daemon.start_main_loop"));
-        executor.run_loop().await?;
+
+        let executor_for_task = executor.clone();
+        let executor_handle = tokio::spawn(async move {
+            executor_for_task.run_loop().await
+        });
+
+        tokio::signal::ctrl_c().await?;
+        info!("{}", rust_i18n::t!("daemon.received_shutdown_signal"));
+        executor.shutdown();
+        if let Err(e) = executor_handle.await {
+            warn!("{}", rust_i18n::t!("daemon.executor_shutdown_error", error = e));
+        }
     }
 
     info!("{}", rust_i18n::t!("daemon.shutting_down"));
+    {
+        let mut runtime_info = runtime.write().await;
+        runtime_info.status = RuntimeStatus::Offline;
+        if let Err(e) = client.update_heartbeat(&*runtime_info).await {
+            warn!("{}", rust_i18n::t!("daemon.failed_update_status", error = e));
+        }
+    }
     Ok(())
 }

@@ -22,6 +22,7 @@ pub struct TaskExecutor {
     client: Arc<BaseClient>,
     config: DaemonConfig,
     workspace_manager: WorkspaceManager,
+    shutdown: AtomicBool,
 }
 
 impl TaskExecutor {
@@ -32,7 +33,12 @@ impl TaskExecutor {
             client,
             config: config.clone(),
             workspace_manager,
+            shutdown: AtomicBool::new(false),
         }
+    }
+
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Relaxed);
     }
 
     pub async fn run_once(&self,
@@ -48,10 +54,15 @@ impl TaskExecutor {
 
         loop {
             ticker.tick().await;
+            if self.shutdown.load(Ordering::Relaxed) {
+                info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                break;
+            }
             if let Err(e) = self.process_tasks().await {
                 error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
             }
         }
+        Ok(())
     }
 
     async fn process_tasks(&self,

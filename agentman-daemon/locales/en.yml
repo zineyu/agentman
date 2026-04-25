@@ -11,6 +11,9 @@ daemon:
   no_existing_runtime: "No existing runtime found, registering new runtime..."
   once_mode: "Running in once mode"
   start_main_loop: "Starting main loop"
+  received_shutdown_signal: "Received shutdown signal, stopping executor..."
+  executor_shutdown_error: "Error waiting for executor to shutdown: {error}"
+  failed_update_status: "Failed to update runtime status to offline: {error}"
   shutting_down: "Agentman Daemon shutting down..."
 
 # Base client
@@ -47,6 +50,7 @@ base_client:
 task_executor:
   executing_once_mode: "Executing tasks (once mode)"
   start_execution_loop: "Starting task execution loop"
+  shutdown_requested: "Shutdown requested, stopping execution loop"
   error_processing_tasks: "Error processing tasks: {error}"
   found_pending_tasks: "Found {count} pending tasks"
   processing_task: "Processing task {id}: {name}"
