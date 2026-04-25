@@ -48,6 +48,9 @@ hostname = "0.4"
 # Local IP address detection
 local-ip-address = "0.6"
 
+# i18n
+rust-i18n = "3"
+
 [dev-dependencies]
 tokio-test = "0.4"
 mockito = "1"
