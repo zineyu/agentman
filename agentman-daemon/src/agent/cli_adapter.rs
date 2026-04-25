@@ -5,14 +5,13 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use crate::agent::{AgentAdapter, ExecutionResult};
+use crate::agent::{AgentAdapter, AgentError, ExecutionResult, Result};
 use crate::models::task::{AgentType, Task};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -41,7 +40,9 @@ impl CommandLineAdapter {
             AgentType::Opencode => vec!["opencode"],
             AgentType::Cursor => vec!["cursor"],
             AgentType::Other => {
-                return Err(anyhow::anyhow!("{}", rust_i18n::t!("cli_adapter.cannot_auto_detect")));
+                return Err(AgentError::CannotAutoDetect(
+                    format!("{:?}", agent_type)
+                ));
             }
         };
 
@@ -51,10 +52,10 @@ impl CommandLineAdapter {
             }
         }
 
-        Err(anyhow::anyhow!(
-            "{}",
-            rust_i18n::t!("cli_adapter.no_cli_found", agent_type = format!("{:?}", agent_type), tried = format!("{:?}", cli_names))
-        ))
+        Err(AgentError::CliNotFound {
+            agent_type: format!("{:?}", agent_type),
+            reason: format!("Tried: {:?}", cli_names),
+        })
     }
 
     fn is_in_path(cmd: &str) -> bool {

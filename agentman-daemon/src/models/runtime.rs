@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +17,16 @@ pub enum RuntimeStatus {
     /// 忙碌
     #[serde(rename = "忙碌")]
     Busy,
+}
+
+impl fmt::Display for RuntimeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RuntimeStatus::Online => write!(f, "在线"),
+            RuntimeStatus::Offline => write!(f, "离线"),
+            RuntimeStatus::Busy => write!(f, "忙碌"),
+        }
+    }
 }
 
 /// 关联记录结构（用于link字段）

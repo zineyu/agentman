@@ -2,7 +2,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::future::Future;
 
-use anyhow::Result;
+use thiserror::Error;
 
 use crate::models::task::Task;
 
@@ -10,6 +10,24 @@ pub mod cli_adapter;
 pub mod factory;
 pub mod hermes_adapter;
 pub mod openclaw_adapter;
+
+#[derive(Error, Debug)]
+pub enum AgentError {
+    #[error("CLI not found for {agent_type}: {reason}")]
+    CliNotFound { agent_type: String, reason: String },
+    #[error("Cannot auto-detect agent type: {0}")]
+    CannotAutoDetect(String),
+    #[error("Process spawn failed: {0}")]
+    ProcessSpawnFailed(String),
+    #[error("Execution timed out after {0} seconds")]
+    ExecutionTimeout(u64),
+    #[error("Process execution failed: {0}")]
+    ProcessExecutionFailed(String),
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+pub type Result<T> = std::result::Result<T, AgentError>;
 
 /// 执行结果
 #[derive(Debug, Clone)]

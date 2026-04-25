@@ -137,7 +137,7 @@ async fn test_base_client_update_task_status() {
         .await;
 
     let client = BaseClient::new(&config).unwrap();
-    let result = client.update_task_status("rec123", "进行中", "任务开始执行").await;
+    let result = client.update_task_status("rec123", Status::InProgress, "任务开始执行").await;
     assert!(result.is_ok());
 }
 

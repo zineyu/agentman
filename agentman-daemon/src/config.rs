@@ -10,9 +10,11 @@ pub enum ConfigError {
     ParseError(String),
     #[error("Missing required field: {0}")]
     MissingField(String),
+    #[error("Invalid config value for '{field}': {reason}")]
+    InvalidValue { field: String, reason: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
     pub runtime_id: String,
     pub runtime_name: String,
@@ -47,6 +49,25 @@ impl Default for DaemonConfig {
     }
 }
 
+impl std::fmt::Debug for DaemonConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DaemonConfig")
+            .field("runtime_id", &self.runtime_id)
+            .field("runtime_name", &self.runtime_name)
+            .field("base_url", &self.base_url)
+            .field("base_token", &"***REDACTED***")
+            .field("app_id", &self.app_id)
+            .field("app_secret", &"***REDACTED***")
+            .field("poll_interval_secs", &self.poll_interval_secs)
+            .field("heartbeat_interval_secs", &self.heartbeat_interval_secs)
+            .field("max_concurrent_tasks", &self.max_concurrent_tasks)
+            .field("workspace_dir", &self.workspace_dir)
+            .field("log_level", &self.log_level)
+            .field("language", &self.language)
+            .finish()
+    }
+}
+
 impl DaemonConfig {
     pub fn load(path: Option<&str>) -> Result<Self, ConfigError> {
         let config_path = path.unwrap_or("config.toml");
@@ -71,6 +92,12 @@ impl DaemonConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.runtime_id.is_empty() {
+            return Err(ConfigError::MissingField("runtime_id".to_string()));
+        }
+        if self.runtime_name.is_empty() {
+            return Err(ConfigError::MissingField("runtime_name".to_string()));
+        }
         if self.base_token.is_empty() {
             return Err(ConfigError::MissingField("base_token".to_string()));
         }
@@ -80,6 +107,36 @@ impl DaemonConfig {
         if self.app_secret.is_empty() {
             return Err(ConfigError::MissingField("app_secret".to_string()));
         }
+        if self.workspace_dir.is_empty() {
+            return Err(ConfigError::MissingField("workspace_dir".to_string()));
+        }
+
+        if self.poll_interval_secs == 0 {
+            return Err(ConfigError::InvalidValue {
+                field: "poll_interval_secs".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+        if self.heartbeat_interval_secs == 0 {
+            return Err(ConfigError::InvalidValue {
+                field: "heartbeat_interval_secs".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+        if self.max_concurrent_tasks == 0 {
+            return Err(ConfigError::InvalidValue {
+                field: "max_concurrent_tasks".to_string(),
+                reason: "must be greater than 0".to_string(),
+            });
+        }
+
+        if !self.base_url.starts_with("http://") && !self.base_url.starts_with("https://") {
+            return Err(ConfigError::InvalidValue {
+                field: "base_url".to_string(),
+                reason: "must start with http:// or https://".to_string(),
+            });
+        }
+
         Ok(())
     }
 
@@ -172,5 +229,65 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("app_secret"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_poll_interval() {
+        let config = DaemonConfig {
+            base_token: "token123".to_string(),
+            app_id: "app123".to_string(),
+            app_secret: "secret123".to_string(),
+            poll_interval_secs: 0,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("poll_interval_secs"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_heartbeat_interval() {
+        let config = DaemonConfig {
+            base_token: "token123".to_string(),
+            app_id: "app123".to_string(),
+            app_secret: "secret123".to_string(),
+            heartbeat_interval_secs: 0,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("heartbeat_interval_secs"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_max_concurrent_tasks() {
+        let config = DaemonConfig {
+            base_token: "token123".to_string(),
+            app_id: "app123".to_string(),
+            app_secret: "secret123".to_string(),
+            max_concurrent_tasks: 0,
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("max_concurrent_tasks"));
+    }
+
+    #[test]
+    fn test_config_validation_invalid_base_url() {
+        let config = DaemonConfig {
+            base_token: "token123".to_string(),
+            app_id: "app123".to_string(),
+            app_secret: "secret123".to_string(),
+            base_url: "invalid-url".to_string(),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("base_url"));
     }
 }

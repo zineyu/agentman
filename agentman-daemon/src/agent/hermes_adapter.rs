@@ -2,9 +2,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::future::Future;
 
-use anyhow::Result;
-
-use crate::agent::{AgentAdapter, ExecutionResult};
+use crate::agent::{AgentAdapter, ExecutionResult, Result};
 use crate::models::task::Task;
 
 pub struct HermesAdapter;

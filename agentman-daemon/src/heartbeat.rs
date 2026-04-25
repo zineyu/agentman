@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::client::BaseClient;
@@ -11,6 +12,7 @@ pub struct HeartbeatService {
     client: Arc<BaseClient>,
     runtime: Arc<RwLock<RuntimeInfo>>,
     interval_secs: u64,
+    cancel_token: CancellationToken,
 }
 
 impl HeartbeatService {
@@ -18,33 +20,40 @@ impl HeartbeatService {
         client: Arc<BaseClient>,
         runtime: Arc<RwLock<RuntimeInfo>>,
         config: &DaemonConfig,
+        cancel_token: CancellationToken,
     ) -> Self {
         Self {
             client,
             runtime,
             interval_secs: config.heartbeat_interval_secs,
+            cancel_token,
         }
     }
 
-    pub async fn start(&self) -> anyhow::Result<()> {
+    pub async fn start(&self) {
         let client = self.client.clone();
         let runtime = self.runtime.clone();
         let interval_secs = self.interval_secs;
+        let cancel = self.cancel_token.clone();
 
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_secs(interval_secs));
 
             loop {
-                ticker.tick().await;
-
-                let runtime_info = runtime.read().await;
-                match client.update_heartbeat(&runtime_info).await {
-                    Ok(_) => debug!("{}", rust_i18n::t!("heartbeat.sent_successfully")),
-                    Err(e) => warn!("{}", rust_i18n::t!("heartbeat.failed", error = e)),
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        let runtime_info = runtime.read().await;
+                        match client.update_heartbeat(&runtime_info).await {
+                            Ok(_) => debug!("{}", rust_i18n::t!("heartbeat.sent_successfully")),
+                            Err(e) => warn!("{}", rust_i18n::t!("heartbeat.failed", error = e)),
+                        }
+                    }
+                    _ = cancel.cancelled() => {
+                        debug!("{}", rust_i18n::t!("heartbeat.shutting_down"));
+                        break;
+                    }
                 }
             }
         });
-
-        Ok(())
     }
 }

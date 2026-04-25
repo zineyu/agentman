@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +20,17 @@ pub enum ExecutionStatus {
     Timeout,
 }
 
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionStatus::Success => write!(f, "成功"),
+            ExecutionStatus::Failed => write!(f, "失败"),
+            ExecutionStatus::InProgress => write!(f, "进行中"),
+            ExecutionStatus::Timeout => write!(f, "超时"),
+        }
+    }
+}
+
 /// 触发方式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerMode {
@@ -30,6 +43,16 @@ pub enum TriggerMode {
     /// 工作流触发
     #[serde(rename = "工作流")]
     Workflow,
+}
+
+impl fmt::Display for TriggerMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TriggerMode::Manual => write!(f, "手动"),
+            TriggerMode::Auto => write!(f, "自动"),
+            TriggerMode::Workflow => write!(f, "工作流"),
+        }
+    }
 }
 
 /// Agent CLI类型
@@ -47,6 +70,18 @@ pub enum AgentType {
     /// 其他Agent
     #[serde(rename = "其他")]
     Other,
+}
+
+impl fmt::Display for AgentType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentType::ClaudeCode => write!(f, "claude-code"),
+            AgentType::Codex => write!(f, "codex"),
+            AgentType::Opencode => write!(f, "opencode"),
+            AgentType::Cursor => write!(f, "cursor"),
+            AgentType::Other => write!(f, "其他"),
+        }
+    }
 }
 
 /// 关联记录结构（用于link字段）

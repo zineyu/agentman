@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +11,15 @@ pub enum ExecutorType {
     Human,
     /// Agent自动执行
     Agent,
+}
+
+impl fmt::Display for ExecutorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutorType::Human => write!(f, "human"),
+            ExecutorType::Agent => write!(f, "agent"),
+        }
+    }
 }
 
 /// 任务状态
@@ -31,6 +42,18 @@ pub enum Status {
     Cancelled,
 }
 
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Status::Todo => write!(f, "待办"),
+            Status::InProgress => write!(f, "进行中"),
+            Status::PendingReview => write!(f, "待审核"),
+            Status::Completed => write!(f, "已完成"),
+            Status::Cancelled => write!(f, "已取消"),
+        }
+    }
+}
+
 /// 优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Priority {
@@ -42,6 +65,17 @@ pub enum Priority {
     P2,
     /// P3 - 低优先级
     P3,
+}
+
+impl fmt::Display for Priority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Priority::P0 => write!(f, "P0"),
+            Priority::P1 => write!(f, "P1"),
+            Priority::P2 => write!(f, "P2"),
+            Priority::P3 => write!(f, "P3"),
+        }
+    }
 }
 
 /// Agent CLI类型
@@ -59,6 +93,18 @@ pub enum AgentType {
     /// 其他Agent
     #[serde(rename = "其他")]
     Other,
+}
+
+impl fmt::Display for AgentType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentType::ClaudeCode => write!(f, "claude-code"),
+            AgentType::Codex => write!(f, "codex"),
+            AgentType::Opencode => write!(f, "opencode"),
+            AgentType::Cursor => write!(f, "cursor"),
+            AgentType::Other => write!(f, "其他"),
+        }
+    }
 }
 
 /// 关联记录结构（用于link字段）

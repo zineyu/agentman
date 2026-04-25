@@ -1,6 +1,4 @@
-use anyhow::Result;
-
-use crate::agent::{AgentAdapter, cli_adapter::CommandLineAdapter, openclaw_adapter::OpenclawAdapter, hermes_adapter::HermesAdapter};
+use crate::agent::{AgentAdapter, Result, cli_adapter::CommandLineAdapter, openclaw_adapter::OpenclawAdapter, hermes_adapter::HermesAdapter};
 use crate::models::task::AgentType;
 
 pub struct AgentFactory;

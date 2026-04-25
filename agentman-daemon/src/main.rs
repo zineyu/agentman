@@ -1,6 +1,7 @@
 use clap::Parser;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 rust_i18n::i18n!("locales", fallback = "en");
@@ -33,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     let config = DaemonConfig::load(cli.config.as_deref())?;
+    config.set_locale();
 
     info!("{}", rust_i18n::t!("daemon.starting"));
     info!("{}", rust_i18n::t!("daemon.runtime_id", id = config.runtime_id));
@@ -70,11 +72,21 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let runtime = Arc::new(RwLock::new(runtime_info));
+    let cancel_token = CancellationToken::new();
 
-    let heartbeat = HeartbeatService::new(client.clone(), runtime.clone(), &config);
-    heartbeat.start().await?;
+    let heartbeat = HeartbeatService::new(
+        client.clone(),
+        runtime.clone(),
+        &config,
+        cancel_token.clone(),
+    );
+    heartbeat.start().await;
 
-    let executor = Arc::new(TaskExecutor::new(client.clone(), &config));
+    let executor = Arc::new(TaskExecutor::new(
+        client.clone(),
+        &config,
+        cancel_token.clone(),
+    ));
 
     if cli.once {
         info!("{}", rust_i18n::t!("daemon.once_mode"));
@@ -89,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
 
         tokio::signal::ctrl_c().await?;
         info!("{}", rust_i18n::t!("daemon.received_shutdown_signal"));
+        cancel_token.cancel();
         executor.shutdown();
         if let Err(e) = executor_handle.await {
             warn!("{}", rust_i18n::t!("daemon.executor_shutdown_error", error = e));
@@ -99,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
     {
         let mut runtime_info = runtime.write().await;
         runtime_info.status = RuntimeStatus::Offline;
-        if let Err(e) = client.update_heartbeat(&*runtime_info).await {
+        if let Err(e) = client.update_heartbeat(&runtime_info).await {
             warn!("{}", rust_i18n::t!("daemon.failed_update_status", error = e));
         }
     }

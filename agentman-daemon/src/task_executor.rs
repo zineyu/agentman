@@ -2,18 +2,39 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio::time::interval;
-use tracing::{error, info};
+use tokio_util::sync::CancellationToken;
+use tracing::{error, info, instrument};
 
 use crate::agent::factory::AgentFactory;
 use crate::client::BaseClient;
 use crate::config::DaemonConfig;
-use crate::git::workspace::WorkspaceManager;
+use std::path::PathBuf;
 use crate::models::{
     execution::{AgentType as ExecutionAgentType, ExecutionLog, ExecutionStatus, LinkRecord, TriggerMode},
-    task::{AgentType, Task},
+    task::{AgentType, Status, Task},
 };
+
+/// Task executor error types
+#[derive(Error, Debug)]
+pub enum TaskExecutorError {
+    /// Invalid task (missing record_id)
+    #[error("Invalid task: {0}")]
+    InvalidTask(String),
+    /// Client operation failed
+    #[error("Client error: {0}")]
+    ClientError(#[from] crate::client::BaseClientError),
+    /// IO operation failed
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+    /// Agent operation failed
+    #[error("Agent error: {0}")]
+    AgentError(#[from] anyhow::Error),
+}
+
+pub type Result<T> = std::result::Result<T, TaskExecutorError>;
 
 const FLUSH_INTERVAL_SECS: u64 = 10;
 const MAX_RETRIES: u32 = 3;
@@ -21,52 +42,65 @@ const MAX_RETRIES: u32 = 3;
 pub struct TaskExecutor {
     client: Arc<BaseClient>,
     config: DaemonConfig,
-    workspace_manager: WorkspaceManager,
     shutdown: AtomicBool,
+    cancel_token: CancellationToken,
 }
 
 impl TaskExecutor {
-    pub fn new(client: Arc<BaseClient>, config: &DaemonConfig) -> Self {
-        let workspace_manager =
-            WorkspaceManager::new(config.workspace_dir.clone());
+    pub fn new(
+        client: Arc<BaseClient>,
+        config: &DaemonConfig,
+        cancel_token: CancellationToken,
+    ) -> Self {
         Self {
             client,
             config: config.clone(),
-            workspace_manager,
             shutdown: AtomicBool::new(false),
+            cancel_token,
         }
     }
 
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::Relaxed);
+        self.cancel_token.cancel();
     }
 
+    #[instrument(skip(self))]
     pub async fn run_once(&self,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         info!("{}", rust_i18n::t!("task_executor.executing_once_mode"));
         self.process_tasks().await
     }
 
+    #[instrument(skip(self))]
     pub async fn run_loop(&self,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         info!("{}", rust_i18n::t!("task_executor.start_execution_loop"));
         let mut ticker = interval(Duration::from_secs(self.config.poll_interval_secs));
 
         loop {
-            ticker.tick().await;
-            if self.shutdown.load(Ordering::Relaxed) {
-                info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
-                break;
-            }
-            if let Err(e) = self.process_tasks().await {
-                error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
+            tokio::select! {
+                _ = ticker.tick() => {
+                    if self.shutdown.load(Ordering::Relaxed) {
+                        info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                        break;
+                    }
+                    if let Err(e) = self.process_tasks().await {
+                        error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
+                    }
+                }
+                _ = self.cancel_token.cancelled() => {
+                    info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                    break;
+                }
             }
         }
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn process_tasks(&self,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let tasks = self
             .client
             .get_pending_tasks(&self.config.runtime_id)
@@ -75,6 +109,10 @@ impl TaskExecutor {
         info!("{}", rust_i18n::t!("task_executor.found_pending_tasks", count = tasks.len()));
 
         for task in tasks {
+            if self.cancel_token.is_cancelled() {
+                info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                break;
+            }
             if let Err(e) = self.process_single_task(task).await {
                 error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
             }
@@ -83,16 +121,19 @@ impl TaskExecutor {
         Ok(())
     }
 
+    #[instrument(skip(self, task), fields(task_id = task.id))]
     async fn process_single_task(
         &self,
         mut task: Task,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let task_id = task.record_id.clone();
         info!("{}", rust_i18n::t!("task_executor.processing_task", id = task.id, name = task.title));
 
         if task.record_id.is_empty() {
             error!("{}", rust_i18n::t!("task_executor.empty_record_id", id = task.id));
-            return Err(anyhow::anyhow!("Task has empty record_id"));
+            return Err(TaskExecutorError::InvalidTask(
+                format!("Task {} has empty record_id", task.id)
+            ));
         }
 
         // 检测是否是审核驳回后的重试
@@ -137,16 +178,14 @@ impl TaskExecutor {
 
         if let Err(e) = self
             .client
-            .update_task_status(&task_id, "进行中", &status_message)
+            .update_task_status(&task_id, Status::InProgress, &status_message)
             .await
         {
             error!("{}", rust_i18n::t!("task_executor.failed_update_status_in_progress", error = e));
             return Err(e.into());
         }
 
-        let workspace = self
-            .workspace_manager
-            .prepare_workspace(&task_id);
+        let workspace = PathBuf::from(&self.config.workspace_dir).join(&task_id);
         let work_dir = workspace.join("work");
         std::fs::create_dir_all(&work_dir)?;
 
@@ -196,7 +235,7 @@ impl TaskExecutor {
                     &log_record_id,
                 )
                 .await?;
-                return Err(e);
+                return Err(TaskExecutorError::AgentError(e.into()));
             }
         };
 
@@ -206,34 +245,41 @@ impl TaskExecutor {
         let flush_flag = needs_flush.clone();
         let flush_client = self.client.clone();
         let flush_log_id = log_record_id.clone();
+        let flush_cancel = self.cancel_token.clone();
 
         let flush_handle = tokio::spawn(async move {
             let mut ticker = interval(Duration::from_secs(FLUSH_INTERVAL_SECS));
             loop {
-                ticker.tick().await;
-                if flush_flag.swap(false, Ordering::Relaxed) {
-                    let buf = flush_buffer.lock().await;
-                    let log = ExecutionLog {
-                        id: 0,
-                        linked_task: vec![LinkRecord {
-                            id: String::new(),
-                        }],
-                        execution_sequence: 0,
-                        agent_type: ExecutionAgentType::Other,
-                        execution_status: ExecutionStatus::InProgress,
-                        start_time: chrono::Local::now().naive_local(),
-                        end_time: None,
-                        execution_output: buf.clone(),
-                        error_info: String::new(),
-                        commit_hash: String::new(),
-                        trigger_mode: TriggerMode::Auto,
-                    };
-                    if let Err(e) = flush_client
-                        .update_execution_log(&flush_log_id, &log
-                        )
-                        .await
-                    {
-                        error!("{}", rust_i18n::t!("task_executor.failed_flush_log", error = e));
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        if flush_flag.swap(false, Ordering::Relaxed) {
+                            let buf = flush_buffer.lock().await;
+                            let log = ExecutionLog {
+                                id: 0,
+                                linked_task: vec![LinkRecord {
+                                    id: String::new(),
+                                }],
+                                execution_sequence: 0,
+                                agent_type: ExecutionAgentType::Other,
+                                execution_status: ExecutionStatus::InProgress,
+                                start_time: chrono::Local::now().naive_local(),
+                                end_time: None,
+                                execution_output: buf.clone(),
+                                error_info: String::new(),
+                                commit_hash: String::new(),
+                                trigger_mode: TriggerMode::Auto,
+                            };
+                            if let Err(e) = flush_client
+                                .update_execution_log(&flush_log_id, &log
+                                )
+                                .await
+                            {
+                                error!("{}", rust_i18n::t!("task_executor.failed_flush_log", error = e));
+                            }
+                        }
+                    }
+                    _ = flush_cancel.cancelled() => {
+                        break;
                     }
                 }
             }
@@ -262,7 +308,6 @@ impl TaskExecutor {
                 error!("{}", rust_i18n::t!("task_executor.agent_execution_error", error = e));
                 self.finalize_execution(
                     &task,
-                    &work_dir,
                     &log_record_id,
                     &mut execution_log,
                     false,
@@ -270,7 +315,7 @@ impl TaskExecutor {
                     &output_buffer.lock().await,
                 )
                 .await?;
-                return Err(e);
+                return Err(TaskExecutorError::AgentError(e.into()));
             }
         };
 
@@ -279,7 +324,6 @@ impl TaskExecutor {
 
         self.finalize_execution(
             &task,
-            &work_dir,
             &log_record_id,
             &mut execution_log,
             success,
@@ -309,16 +353,16 @@ impl TaskExecutor {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self, execution_log), fields(task_id = task.id, success))]
     async fn finalize_execution(
         &self,
         task: &Task,
-        _work_dir: &std::path::Path,
         log_record_id: &str,
         execution_log: &mut ExecutionLog,
         success: bool,
         error_info: &str,
         output: &str,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         execution_log.end_time =
             Some(chrono::Local::now().naive_local());
         execution_log.execution_output = output.to_string();
@@ -342,7 +386,7 @@ impl TaskExecutor {
                 .client
                 .update_task_status(
                     &task.record_id,
-                    "待审核",
+                    Status::PendingReview,
                     &format!("执行成功\n输出:\n{}", output),
                 )
                 .await
@@ -360,16 +404,17 @@ impl TaskExecutor {
         Ok(())
     }
 
+    #[instrument(skip(self), fields(task_id = task.id))]
     async fn handle_execution_failure(
         &self,
         task: &Task,
         error_info: &str,
         _log_record_id: &str,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let new_retry_count = task.retry_count + 1;
         let (status, message) = if new_retry_count < MAX_RETRIES {
             (
-                "待办",
+                Status::Todo,
                 format!(
                     "执行失败，准备第{}次重试\n错误: {}",
                     new_retry_count + 1,
@@ -378,7 +423,7 @@ impl TaskExecutor {
             )
         } else {
             (
-                "已取消",
+                Status::Cancelled,
                 format!(
                     "执行失败超过最大重试次数({}/{})\n错误: {}",
                     MAX_RETRIES, MAX_RETRIES, error_info
