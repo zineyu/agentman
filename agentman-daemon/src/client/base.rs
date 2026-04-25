@@ -155,7 +155,7 @@ impl BaseClient {
             expires_at,
         });
 
-        debug!("Access token refreshed, expires in {} seconds", expire_secs);
+        debug!("{}", rust_i18n::t!("base_client.token_refreshed", seconds = expire_secs));
 
         Ok(token)
     }
@@ -203,15 +203,18 @@ impl BaseClient {
         if table_ids.task_table_id.is_empty() {
             return Err(BaseClientError::ApiError {
                 code: -1,
-                msg: "任务主表 not found in Base".to_string(),
+                msg: "Tasks table (任务主表) not found in Base".to_string(),
             });
         }
 
         info!(
-            "Table IDs initialized: task={}, runtime={}, log={}",
-            table_ids.task_table_id,
-            table_ids.runtime_table_id,
-            table_ids.execution_log_table_id
+            "{}",
+            rust_i18n::t!(
+                "base_client.table_ids_initialized",
+                task = table_ids.task_table_id,
+                runtime = table_ids.runtime_table_id,
+                log = table_ids.execution_log_table_id
+            )
         );
 
         Ok(())
@@ -262,10 +265,13 @@ impl BaseClient {
             }
 
             debug!(
-                "API request: {} {} (attempt {})",
-                method,
-                path,
-                attempt + 1
+                "{}",
+                rust_i18n::t!(
+                    "base_client.api_request",
+                    method = method.to_string(),
+                    path = path,
+                    attempt = attempt + 1
+                )
             );
 
             match request.send().await {
@@ -276,8 +282,13 @@ impl BaseClient {
                         Ok(v) => v,
                         Err(e) => {
                             warn!(
-                                "Failed to parse response as JSON (status: {}): {}\nRaw response: {}",
-                                status, e, response_text
+                                "{}",
+                                rust_i18n::t!(
+                                    "base_client.parse_response_error",
+                                    status = status.as_u16(),
+                                    error = e,
+                                    raw = response_text
+                                )
                             );
                             return Err(BaseClientError::SerializationError(e));
                         }
@@ -286,14 +297,14 @@ impl BaseClient {
                     // HTTP 429 - 速率限制
                     if status == StatusCode::TOO_MANY_REQUESTS {
                         let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
-                        warn!("HTTP 429 rate limited, retrying in {:?}", delay);
+                        warn!("{}", rust_i18n::t!("base_client.rate_limited", delay = format!("{:?}", delay)));
                         tokio::time::sleep(delay).await;
                         continue;
                     }
 
                     // HTTP 401 - token过期，清除缓存并重试
                     if status == StatusCode::UNAUTHORIZED {
-                        warn!("HTTP 401 unauthorized, clearing token cache and retrying");
+                        warn!("{}", rust_i18n::t!("base_client.unauthorized"));
                         self.clear_token_cache().await;
                         continue;
                     }
@@ -316,13 +327,13 @@ impl BaseClient {
                         1254290 | 1254291 | 1255040 | 1254607 => {
                             let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
                             warn!(
-                                "Retryable API error {} ({}), retrying in {:?}",
-                                code,
-                                response_body
-                                    .get("msg")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown"),
-                                delay
+                                "{}",
+                                rust_i18n::t!(
+                                    "base_client.retryable_error",
+                                    status = code,
+                                    message = response_body.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                                    delay = format!("{:?}", delay)
+                                )
                             );
                             tokio::time::sleep(delay).await;
                             continue;
@@ -344,10 +355,13 @@ impl BaseClient {
                     if e.is_timeout() || e.is_connect() {
                         let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
                         warn!(
-                            "Network error (attempt {}): {}, retrying in {:?}",
-                            attempt + 1,
-                            e,
-                            delay
+                            "{}",
+                            rust_i18n::t!(
+                                "base_client.network_error",
+                                attempt = attempt + 1,
+                                error = e,
+                                delay = format!("{:?}", delay)
+                            )
                         );
                         tokio::time::sleep(delay).await;
                         continue;
@@ -393,9 +407,12 @@ impl BaseClient {
         let tasks: Vec<Task> = items.into_iter().map(parse_task_from_record).collect();
 
         info!(
-            "Fetched {} pending tasks for runtime {}",
-            tasks.len(),
-            runtime_id
+            "{}",
+            rust_i18n::t!(
+                "base_client.fetched_pending_tasks",
+                count = tasks.len(),
+                runtime = runtime_id
+            )
         );
 
         Ok(tasks)
@@ -437,7 +454,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::PUT, &path, Some(body), None)
             .await?;
 
-        info!("Updated task {} status to {}", task_id, status);
+        info!("{}", rust_i18n::t!("base_client.updated_task_status", id = task_id, status = status));
 
         Ok(())
     }
@@ -461,7 +478,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::PUT, &path, Some(body), None)
             .await?;
 
-        info!("Cleared rejection reason for task {}", task_id);
+        info!("{}", rust_i18n::t!("base_client.cleared_rejection_reason", id = task_id));
         Ok(())
     }
 
@@ -536,8 +553,12 @@ impl BaseClient {
         };
 
         info!(
-            "Found existing runtime {} for hostname {}",
-            runtime_info.runtime_id, hostname
+            "{}",
+            rust_i18n::t!(
+                "base_client.found_existing_runtime",
+                id = runtime_info.runtime_id,
+                hostname = hostname
+            )
         );
 
         Ok(Some(runtime_info))
@@ -565,7 +586,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::POST, &path, Some(body), None)
             .await?;
 
-        info!("Registered runtime {}", runtime_info.runtime_id);
+        info!("{}", rust_i18n::t!("base_client.registered_runtime", id = runtime_info.runtime_id));
 
         Ok(())
     }
@@ -596,8 +617,11 @@ impl BaseClient {
         if items.is_empty() {
             // 运行时记录不存在，先注册
             warn!(
-                "Runtime {} not found, registering instead",
-                runtime_info.runtime_id
+                "{}",
+                rust_i18n::t!(
+                    "base_client.runtime_not_found_registering",
+                    id = runtime_info.runtime_id
+                )
             );
             return self.register_runtime(runtime_info).await;
         }
@@ -622,7 +646,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::PUT, &update_path, Some(body), None)
             .await?;
 
-        debug!("Updated heartbeat for runtime {}", runtime_info.runtime_id);
+        debug!("{}", rust_i18n::t!("base_client.updated_heartbeat", id = runtime_info.runtime_id));
 
         Ok(())
     }
@@ -668,8 +692,12 @@ impl BaseClient {
             .to_string();
 
         debug!(
-            "Created execution log {} for task sequence {}",
-            record_id, log.execution_sequence
+            "{}",
+            rust_i18n::t!(
+                "base_client.created_execution_log",
+                id = record_id,
+                seq = log.execution_sequence
+            )
         );
 
         Ok(record_id)
@@ -699,7 +727,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::PUT, &path, Some(body), None)
             .await?;
 
-        debug!("Updated execution log {}", record_id);
+        debug!("{}", rust_i18n::t!("base_client.updated_execution_log", id = record_id));
 
         Ok(())
     }
