@@ -33,9 +33,6 @@ pub enum BaseClientError {
 
     #[error("Record not found")]
     RecordNotFound,
-
-    #[error("Base not found: no accessible Base named 'Agentman任务管理'")]
-    BaseNotFound,
 }
 
 /// 缓存的token信息
@@ -48,7 +45,6 @@ struct TokenInfo {
 /// 表ID缓存
 #[derive(Clone, Default)]
 struct TableIds {
-    base_token: String,
     task_table_id: String,
     runtime_table_id: String,
     execution_log_table_id: String,
@@ -170,40 +166,12 @@ impl BaseClient {
         *cache = None;
     }
 
-    async fn discover_base(&self) -> Result<String, BaseClientError> {
-        let path = "/open-apis/bitable/v1/apps";
-
-        let response = self
-            .api_request(reqwest::Method::GET, path, None, None)
-            .await?;
-
-        let apps = response
-            .get("data")
-            .and_then(|d| d.get("apps"))
-            .and_then(|a| a.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        for app in apps {
-            if let (Some(name), Some(token)) = (
-                app.get("name").and_then(|v| v.as_str()),
-                app.get("app_token").and_then(|v| v.as_str()),
-            ) {
-                if name == "Agentman任务管理" {
-                    info!("Discovered base token for '{}'", name);
-                    return Ok(token.to_string());
-                }
-            }
-        }
-
-        Err(BaseClientError::BaseNotFound)
-    }
-
     /// 初始化表ID，通过查询Base表列表获取
     pub async fn init_table_ids(&self) -> Result<(), BaseClientError> {
-        let base_token = self.discover_base().await?;
-
-        let path = format!("/open-apis/bitable/v1/apps/{}/tables", base_token);
+        let path = format!(
+            "/open-apis/bitable/v1/apps/{}/tables",
+            self.config.base_token
+        );
 
         let response = self
             .api_request(reqwest::Method::GET, &path, None, None)
@@ -239,8 +207,6 @@ impl BaseClient {
             });
         }
 
-        table_ids.base_token = base_token;
-
         info!(
             "Table IDs initialized: task={}, runtime={}, log={}",
             table_ids.task_table_id,
@@ -249,10 +215,6 @@ impl BaseClient {
         );
 
         Ok(())
-    }
-
-    async fn base_token(&self) -> String {
-        self.table_ids.read().await.base_token.clone()
     }
 
     /// 获取任务表ID
@@ -408,7 +370,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.base_token().await, self.task_table_id().await
+            self.config.base_token, self.task_table_id().await
         );
 
         let query = vec![
@@ -462,7 +424,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.base_token().await, self.task_table_id().await, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let body = json!({
@@ -487,7 +449,7 @@ impl BaseClient {
     ) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.base_token().await, self.task_table_id().await, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let body = json!({
@@ -507,7 +469,7 @@ impl BaseClient {
     async fn get_task_field(&self, task_id: &str, field_name: &str) -> Result<String, BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.base_token().await, self.task_table_id().await, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let response = self
@@ -535,7 +497,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.base_token().await, self.runtime_table_id().await
+            self.config.base_token, self.runtime_table_id().await
         );
 
         let query = vec![("filter", filter), ("page_size", "1".to_string())];
@@ -585,7 +547,7 @@ impl BaseClient {
     pub async fn register_runtime(&self, runtime_info: &RuntimeInfo) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.base_token().await, self.runtime_table_id().await
+            self.config.base_token, self.runtime_table_id().await
         );
 
         let body = json!({
@@ -615,7 +577,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.base_token().await, self.runtime_table_id().await
+            self.config.base_token, self.runtime_table_id().await
         );
 
         let query = vec![("filter", filter), ("page_size", "1".to_string())];
@@ -647,7 +609,7 @@ impl BaseClient {
 
         let update_path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.base_token().await, self.runtime_table_id().await, record_id
+            self.config.base_token, self.runtime_table_id().await, record_id
         );
 
         let body = json!({
@@ -669,7 +631,7 @@ impl BaseClient {
     pub async fn create_execution_log(&self, log: &ExecutionLog) -> Result<String, BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.base_token().await, self.execution_log_table_id().await
+            self.config.base_token, self.execution_log_table_id().await
         );
 
         let linked_task_ids: Vec<String> = log
@@ -721,7 +683,7 @@ impl BaseClient {
     ) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.base_token().await, self.execution_log_table_id().await, record_id
+            self.config.base_token, self.execution_log_table_id().await, record_id
         );
 
         let body = json!({

@@ -17,6 +17,7 @@ pub struct DaemonConfig {
     pub runtime_id: String,
     pub runtime_name: String,
     pub base_url: String,
+    pub base_token: String,
     pub app_id: String,
     pub app_secret: String,
     pub poll_interval_secs: u64,
@@ -32,6 +33,7 @@ impl Default for DaemonConfig {
             runtime_id: generate_stable_runtime_id(),
             runtime_name: "Agentman Daemon".to_string(),
             base_url: "https://open.feishu.cn".to_string(),
+            base_token: String::new(),
             app_id: String::new(),
             app_secret: String::new(),
             poll_interval_secs: 30,
@@ -67,6 +69,9 @@ impl DaemonConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.base_token.is_empty() {
+            return Err(ConfigError::MissingField("base_token".to_string()));
+        }
         if self.app_id.is_empty() {
             return Err(ConfigError::MissingField("app_id".to_string()));
         }
@@ -110,6 +115,7 @@ mod tests {
     #[test]
     fn test_config_validation_success() {
         let config = DaemonConfig {
+            base_token: "token123".to_string(),
             app_id: "app123".to_string(),
             app_secret: "secret123".to_string(),
             ..Default::default()
@@ -118,8 +124,22 @@ mod tests {
     }
 
     #[test]
+    fn test_config_validation_missing_base_token() {
+        let config = DaemonConfig {
+            app_id: "app123".to_string(),
+            app_secret: "secret123".to_string(),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("base_token"));
+    }
+
+    #[test]
     fn test_config_validation_missing_app_id() {
         let config = DaemonConfig {
+            base_token: "token123".to_string(),
             app_secret: "secret123".to_string(),
             ..Default::default()
         };
@@ -132,6 +152,7 @@ mod tests {
     #[test]
     fn test_config_validation_missing_app_secret() {
         let config = DaemonConfig {
+            base_token: "token123".to_string(),
             app_id: "app123".to_string(),
             ..Default::default()
         };
