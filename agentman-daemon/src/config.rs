@@ -17,6 +17,7 @@ pub struct DaemonConfig {
     pub runtime_id: String,
     pub runtime_name: String,
     pub base_url: String,
+    #[serde(default)]
     pub base_token: String,
     pub app_id: String,
     pub app_secret: String,
