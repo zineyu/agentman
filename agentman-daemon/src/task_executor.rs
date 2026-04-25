@@ -37,19 +37,19 @@ impl TaskExecutor {
 
     pub async fn run_once(&self,
     ) -> anyhow::Result<()> {
-        info!("Executing tasks (once mode)");
+        info!("{}", rust_i18n::t!("task_executor.executing_once_mode"));
         self.process_tasks().await
     }
 
     pub async fn run_loop(&self,
     ) -> anyhow::Result<()> {
-        info!("Starting task execution loop");
+        info!("{}", rust_i18n::t!("task_executor.start_execution_loop"));
         let mut ticker = interval(Duration::from_secs(self.config.poll_interval_secs));
 
         loop {
             ticker.tick().await;
             if let Err(e) = self.process_tasks().await {
-                error!("Error processing tasks: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
             }
         }
     }
@@ -61,11 +61,11 @@ impl TaskExecutor {
             .get_pending_tasks(&self.config.runtime_id)
             .await?;
 
-        info!("Found {} pending tasks", tasks.len());
+        info!("{}", rust_i18n::t!("task_executor.found_pending_tasks", count = tasks.len()));
 
         for task in tasks {
             if let Err(e) = self.process_single_task(task).await {
-                error!("Failed to process task: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
             }
         }
 
@@ -77,10 +77,10 @@ impl TaskExecutor {
         mut task: Task,
     ) -> anyhow::Result<()> {
         let task_id = task.record_id.clone();
-        info!("Processing task {}: {}", task.id, task.title);
+        info!("{}", rust_i18n::t!("task_executor.processing_task", id = task.id, name = task.title));
 
         if task.record_id.is_empty() {
-            error!("Task {} has empty record_id, skipping", task.id);
+            error!("{}", rust_i18n::t!("task_executor.empty_record_id", id = task.id));
             return Err(anyhow::anyhow!("Task has empty record_id"));
         }
 
@@ -88,8 +88,12 @@ impl TaskExecutor {
         let is_rejection_retry = !task.review_rejection_reason.is_empty();
         if is_rejection_retry {
             info!(
-                "Task {} is retrying after rejection: {}",
-                task.id, task.review_rejection_reason
+                "{}",
+                rust_i18n::t!(
+                    "task_executor.retrying_after_rejection",
+                    id = task.id,
+                    reason = task.review_rejection_reason
+                )
             );
 
             // 将驳回理由追加到任务描述中，作为额外上下文
@@ -106,7 +110,7 @@ impl TaskExecutor {
                 .clear_task_rejection_reason(&task_id)
                 .await
             {
-                error!("Failed to clear rejection reason: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.failed_clear_rejection", error = e));
             }
         }
 
@@ -125,7 +129,7 @@ impl TaskExecutor {
             .update_task_status(&task_id, "进行中", &status_message)
             .await
         {
-            error!("Failed to update task status to 进行中: {}", e);
+            error!("{}", rust_i18n::t!("task_executor.failed_update_status_in_progress", error = e));
             return Err(e.into());
         }
 
@@ -164,7 +168,7 @@ impl TaskExecutor {
         {
             Ok(id) => id,
             Err(e) => {
-                error!("Failed to create execution log: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.failed_create_execution_log", error = e));
                 return Err(e.into());
             }
         };
@@ -174,10 +178,10 @@ impl TaskExecutor {
         ) {
             Ok(adapter) => adapter,
             Err(e) => {
-                error!("Failed to create agent adapter: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.failed_create_adapter", error = e));
                 self.handle_execution_failure(
                     &task,
-                    &format!("Agent adapter creation failed: {}", e),
+                    &format!("{}", rust_i18n::t!("task_executor.adapter_creation_failed", error = e)),
                     &log_record_id,
                 )
                 .await?;
@@ -218,7 +222,7 @@ impl TaskExecutor {
                         )
                         .await
                     {
-                        error!("Failed to flush execution log: {}", e);
+                        error!("{}", rust_i18n::t!("task_executor.failed_flush_log", error = e));
                     }
                 }
             }
@@ -244,14 +248,14 @@ impl TaskExecutor {
         let execution_result = match result {
             Ok(result) => result,
             Err(e) => {
-                error!("Agent execution error: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.agent_execution_error", error = e));
                 self.finalize_execution(
                     &task,
                     &work_dir,
                     &log_record_id,
                     &mut execution_log,
                     false,
-                    &format!("Agent execution error: {}", e),
+                    &format!("{}", rust_i18n::t!("task_executor.agent_execution_error", error = e)),
                     &output_buffer.lock().await,
                 )
                 .await?;
@@ -275,15 +279,18 @@ impl TaskExecutor {
 
         if success {
             info!(
-                "Task {} completed successfully, status set to 待审核",
-                task.id
+                "{}",
+                rust_i18n::t!("task_executor.task_completed_success", id = task.id)
             );
         } else {
             info!(
-                "Task {} failed, retry count: {}/{}",
-                task.id,
-                task.retry_count + 1,
-                MAX_RETRIES
+                "{}",
+                rust_i18n::t!(
+                    "task_executor.task_failed_retry",
+                    id = task.id,
+                    current = task.retry_count + 1,
+                    max = MAX_RETRIES
+                )
             );
         }
 
@@ -316,7 +323,7 @@ impl TaskExecutor {
             .update_execution_log(log_record_id, execution_log)
             .await
         {
-            error!("Failed to update execution log: {}", e);
+            error!("{}", rust_i18n::t!("task_executor.failed_update_execution_log", error = e));
         }
 
         if success {
@@ -329,7 +336,7 @@ impl TaskExecutor {
                 )
                 .await
             {
-                error!("Failed to update task status to 待审核: {}", e);
+                error!("{}", rust_i18n::t!("task_executor.failed_update_status_pending_review", error = e));
                 return Err(e.into());
             }
         } else {
@@ -374,13 +381,17 @@ impl TaskExecutor {
             )
             .await
         {
-            error!("Failed to update task status on failure: {}", e);
+            error!("{}", rust_i18n::t!("task_executor.failed_update_status_failure", error = e));
             return Err(e.into());
         }
 
         info!(
-            "Task {} status updated to {} after failure",
-            task.id, status
+            "{}",
+            rust_i18n::t!(
+                "task_executor.task_status_updated_after_failure",
+                id = task.id,
+                status = status
+            )
         );
         Ok(())
     }
