@@ -20,7 +20,6 @@ This document provides comprehensive deployment instructions for the Agentman Da
 | Component | Minimum Version | Purpose |
 |-----------|----------------|---------|
 | **Rust** | 1.75+ | Build the daemon |
-| **Git** | 2.30+ | Repository cloning and operations |
 | **lark-cli** | Latest | Lark Base interaction and auth |
 | **Agent CLI** | Latest | At least one of: claude, codex, opencode, cursor |
 
@@ -34,7 +33,7 @@ This document provides comprehensive deployment instructions for the Agentman Da
 
 - **OS**: Linux (tested), macOS, Windows
 - **RAM**: 512MB minimum, 2GB recommended
-- **Disk**: 1GB for binary + workspace per task (~100MB per repo clone)
+- **Disk**: 1GB for binary + workspace directory
 - **Network**: Outbound HTTPS to `open.feishu.cn`
 
 ---
@@ -92,7 +91,7 @@ cd agentman/agentman-daemon
 Create `config.toml` in the daemon directory:
 
 ```toml
-# Daemon identity
+# Daemon identity (optional - auto-generated from hostname if omitted)
 runtime_id = "agentman-prod-01"
 runtime_name = "Production Daemon #1"
 
@@ -111,7 +110,7 @@ heartbeat_interval_secs = 60
 # Concurrency control
 max_concurrent_tasks = 3
 
-# Workspace directory for Git repositories
+# Workspace directory for task outputs
 workspace_dir = "./workspace"
 
 # Logging level: trace, debug, info, warn, error
@@ -132,18 +131,22 @@ cargo build --release
 
 ### 6. Register the Runtime
 
-First-time setup requires registering the daemon in the Lark Base Runtimes table:
+First-time setup automatically registers the daemon in the Lark Base Runtimes table. The daemon will:
+
+1. Check if a runtime with the same hostname already exists
+2. If found, reuse the existing `runtime_id` and `runtime_name`
+3. If not found, create a new runtime record
 
 ```bash
-# Register this runtime
+# Register this runtime (or auto-detect existing)
 ./target/release/agentman-daemon --register
 
 # Expected output:
 # INFO agentman_daemon: Agentman Daemon starting...
-# INFO agentman_daemon: Runtime ID: agentman-prod-01
+# INFO agentman_daemon: Runtime ID: agentman-myhostname (auto-detected or configured)
 # INFO agentman_daemon: Base URL: https://open.feishu.cn
 # INFO agentman_daemon: Registering runtime...
-# INFO agentman_daemon::client::base: Registered runtime agentman-prod-01
+# INFO agentman_daemon::client::base: Reusing existing runtime agentman-myhostname
 # ...
 # INFO agentman_daemon: Agentman Daemon shutting down...
 ```
@@ -177,12 +180,12 @@ tail -f workspace/logs/agentman.log
 
 Expected log patterns:
 ```
-INFO  Fetching pending tasks for runtime agentman-prod-01
+INFO  Fetching pending tasks for runtime agentman-myhostname
 INFO  Found 2 pending tasks
 INFO  Processing task 42: Implement user authentication
-INFO  Repository setup complete at ./workspace/rec_xxx/repo
+INFO  Workspace directory: ./workspace/task_42
 INFO  Task 42 completed successfully, status set to 待审核
-INFO  Updated heartbeat for runtime agentman-prod-01
+INFO  Updated heartbeat for runtime agentman-myhostname
 ```
 
 ---
@@ -193,7 +196,7 @@ INFO  Updated heartbeat for runtime agentman-prod-01
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|----------|-------------|
-| `runtime_id` | string | `agentman-<uuid>` | Yes | Unique daemon identifier |
+| `runtime_id` | string | `agentman-<hostname>` | No | Unique daemon identifier (auto-generated from hostname if omitted) |
 | `runtime_name` | string | `"Agentman Daemon"` | Yes | Human-readable name shown in Base |
 | `base_url` | string | `"https://open.feishu.cn"` | Yes | Lark OpenAPI base URL |
 | `base_token` | string | `""` | **Yes** | Lark Base app token |
@@ -202,7 +205,7 @@ INFO  Updated heartbeat for runtime agentman-prod-01
 | `poll_interval_secs` | u64 | `30` | No | Task polling interval (seconds) |
 | `heartbeat_interval_secs` | u64 | `60` | No | Heartbeat interval (seconds) |
 | `max_concurrent_tasks` | usize | `3` | No | Max concurrent task executions |
-| `workspace_dir` | string | `"./workspace"` | No | Directory for Git workspaces |
+| `workspace_dir` | string | `"./workspace"` | No | Directory for task workspaces and outputs |
 | `log_level` | string | `"info"` | No | Log verbosity level |
 
 ### Environment Variables
@@ -327,27 +330,31 @@ You can run multiple Agentman Daemon instances for high availability or load dis
 
 ### Approach 1: Per-Machine Daemon
 
-Each machine runs one daemon with a unique `runtime_id`:
+Each machine runs one daemon. `runtime_id` is auto-generated from hostname if not configured:
 
 ```toml
-# Machine 1: config.toml
-runtime_id = "agentman-web-01"
+# Machine 1: config.toml (auto-detects as agentman-web-server-01)
 runtime_name = "Web Server Daemon"
 
-# Machine 2: config.toml
-runtime_id = "agentman-api-01"
+# Machine 2: config.toml (auto-detects as agentman-api-server-01)
 runtime_name = "API Server Daemon"
 
-# Machine 3: config.toml
-runtime_id = "agentman-gpu-01"
+# Machine 3: config.toml (auto-detects as agentman-gpu-worker-01)
 runtime_name = "GPU Worker Daemon"
+```
+
+To override the auto-detected ID, explicitly set `runtime_id`:
+```toml
+# Machine 1 with custom ID
+runtime_id = "agentman-web-01"
+runtime_name = "Web Server Daemon"
 ```
 
 Tasks are pre-allocated in Lark Base by setting the "分配的运行时" (Assigned Runtime) field to link to a specific runtime record.
 
 ### Approach 2: Multiple Daemons on Same Machine
 
-Use different config files and workspace directories:
+Use different config files and workspace directories. Each daemon **must** have a unique `runtime_id`:
 
 ```bash
 # Daemon 1
@@ -359,7 +366,7 @@ cargo run -- --config daemon2.toml
 
 ```toml
 # daemon1.toml
-runtime_id = "YOUR_RUNTIME_ID"
+runtime_id = "agentman-local-01"
 workspace_dir = "./workspace1"
 poll_interval_secs = 30
 
@@ -408,19 +415,7 @@ ERROR Failed to create agent adapter: No CLI tool found for ClaudeCode. Tried: [
 - Verify it's in PATH: `which claude`
 - For custom install locations, create a symlink: `ln -s /custom/path/claude /usr/local/bin/claude`
 
-#### 3. Git Clone Failed
-
-**Symptoms**:
-```
-ERROR Git clone failed: fatal: could not read Username for 'https://github.com'
-```
-
-**Solutions**:
-- Configure Git credentials: `git config --global credential.helper store`
-- Use SSH URLs instead of HTTPS in task repo_url field
-- Ensure the daemon user has SSH keys configured
-
-#### 4. Rate Limiting (429)
+#### 3. Rate Limiting (429)
 
 **Symptoms**:
 ```
@@ -453,7 +448,6 @@ ERROR Failed to create workspace directory: Permission denied
 - Check if the Agent CLI is still running: `ps aux | grep claude`
 - The default timeout is 30 minutes — wait or kill the process
 - Check execution logs in Lark Base ExecutionLogs table
-- Verify the task's branch exists in the repository
 
 ### Debug Mode
 
@@ -466,7 +460,6 @@ RUST_LOG=debug ./target/release/agentman-daemon --once
 This shows:
 - Every API request/response
 - Token refresh events
-- Git command outputs
 - Agent CLI spawn details
 
 ### Health Check Script

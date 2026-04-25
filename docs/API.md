@@ -331,9 +331,7 @@ Represents a task record in the Tasks table.
 | `completed_at` | `Option<NaiveDateTime>` | 完成时间 | Completion timestamp |
 | `last_urge_time` | `Option<NaiveDateTime>` | 最后催办时间 | Last urge reminder time |
 | `agent_type` | `Option<AgentType>` | Agent类型 | ClaudeCode/Codex/Opencode/Cursor/Other |
-| `work_dir` | `String` | 工作目录 | Working directory hint |
-| `repo_url` | `String` | 仓库地址 | Git repository URL |
-| `branch` | `String` | 分支名称 | Git branch name |
+| `work_dir` | `String` | 工作目录 | Working directory for task execution |
 | `reviewer` | `Option<String>` | 审核人 | Reviewer identifier |
 | `review_comment` | `String` | 审核意见 | Review comments |
 | `review_rejection_reason` | `String` | 审核驳回理由 | Rejection reason |
@@ -379,7 +377,7 @@ Records each task execution attempt.
 | `end_time` | `Option<NaiveDateTime>` | 结束时间 | Execution end |
 | `execution_output` | `String` | 执行输出 | Full stdout/stderr output |
 | `error_info` | `String` | 错误信息 | Error description |
-| `commit_hash` | `String` | 提交记录 | Git commit hash |
+| `commit_hash` | `String` | 提交记录 | Optional reference ID or result identifier |
 | `trigger_mode` | `TriggerMode` | 触发方式 | Manual/Auto/Workflow |
 
 **Table ID**: `YOUR_EXECUTION_LOG_TABLE_ID`
@@ -501,28 +499,6 @@ pub enum BaseClientError {
 }
 ```
 
-### GitError
-
-```rust
-#[derive(Debug, Error)]
-pub enum GitError {
-    #[error("Git command failed: {0}")]
-    CommandFailed(String),
-
-    #[error("Invalid repository URL: {0}")]
-    InvalidUrl(String),
-
-    #[error("Repository not found at {0}")]
-    RepoNotFound(String),
-
-    #[error("IO error: {0}")]
-    IoError(std::io::Error),
-
-    #[error("UTF-8 decode error: {0}")]
-    Utf8Error(std::string::FromUtf8Error),
-}
-```
-
 ### ConfigError
 
 ```rust
@@ -544,9 +520,8 @@ pub enum ConfigError {
 The daemon uses a layered error approach:
 
 1. **BaseClientError**: API-level errors with automatic retry
-2. **GitError**: Git operation failures (non-retryable)
-3. **ConfigError**: Configuration validation failures (fatal on startup)
-4. **anyhow::Result**: Top-level error propagation with context
+2. **ConfigError**: Configuration validation failures (fatal on startup)
+3. **anyhow::Result**: Top-level error propagation with context
 
 ```rust
 // Example: Task execution error handling
@@ -554,8 +529,8 @@ async fn process_single_task(&self, task: Task) -> anyhow::Result<()> {
     let tasks = self.client.get_pending_tasks(&self.config.runtime_id).await?;
     // BaseClientError -> automatically retried -> if max retries, returns Err
     
-    self.git_manager.clone_repo(&task.repo_url, &repo_dir)?;
-    // GitError -> immediately propagated, task marked as failed
+    self.executor.execute(&task).await?;
+    // ExecutionError -> immediately propagated, task marked as failed
     
     Ok(())
 }
@@ -629,9 +604,7 @@ Currently, the daemon processes one task at a time per poll cycle.
 | 完成时间 | DateTime | No | Completion timestamp |
 | 最后催办时间 | DateTime | No | Last urge timestamp |
 | Agent类型 | SingleSelect | No | claude-code/codex/opencode/cursor/其他 |
-| 工作目录 | Text | No | Workspace directory path |
-| 仓库地址 | Text | Yes | Git repository URL |
-| 分支名称 | Text | Yes | Git branch to checkout |
+| 工作目录 | Text | No | Workspace directory for task execution |
 | 审核人 | Text | No | Reviewer identifier |
 | 审核意见 | Text | No | Review feedback |
 | 审核驳回理由 | Text | No | Rejection reason (triggers retry) |
@@ -674,7 +647,7 @@ Currently, the daemon processes one task at a time per poll cycle.
 | 结束时间 | DateTime | No | Execution end |
 | 执行输出 | Text | No | Full stdout/stderr |
 | 错误信息 | Text | No | Error description |
-| 提交记录 | Text | No | Git commit hash |
+| 提交记录 | Text | No | Optional reference ID or result identifier |
 | 触发方式 | SingleSelect | Yes | 手动/自动/工作流 |
 
 ---
