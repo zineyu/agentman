@@ -54,8 +54,6 @@ fn test_task_deserialization() {
         "最后催办时间": null,
         "Agent类型": "claude-code",
         "工作目录": "./workspace/test",
-        "仓库地址": "https://github.com/example/repo.git",
-        "分支名称": "main",
         "审核人": null,
         "审核意见": "",
         "审核驳回理由": "",
@@ -76,8 +74,6 @@ fn test_task_deserialization() {
     assert_eq!(task.priority, Priority::P0);
     assert_eq!(task.agent_type, Some(AgentType::ClaudeCode));
     assert_eq!(task.work_dir, "./workspace/test");
-    assert_eq!(task.repo_url, "https://github.com/example/repo.git");
-    assert_eq!(task.branch, "main");
     assert_eq!(task.retry_count, 0);
     assert_eq!(task.urge_count, 0);
     assert_eq!(task.estimated_hours, 2.5);

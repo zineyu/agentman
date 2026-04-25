@@ -37,12 +37,33 @@ async fn main() -> anyhow::Result<()> {
     info!("Base URL: {}", config.base_url);
 
     let client = Arc::new(BaseClient::new(&config)?);
-    let runtime = Arc::new(RwLock::new(RuntimeInfo::from_config(&config)));
+
+    info!("Initializing table IDs...");
+    client.init_table_ids().await?;
+
+    let mut runtime_info = RuntimeInfo::from_config(&config);
 
     if cli.register {
-        info!("Registering runtime...");
-        client.register_runtime(&*runtime.read().await).await?;
+        info!("Checking for existing runtime...");
+        let hostname = runtime_info.hostname.clone();
+
+        match client.find_runtime_by_hostname(&hostname).await? {
+            Some(existing_runtime) => {
+                info!(
+                    "Found existing runtime {} for hostname {}, reusing",
+                    existing_runtime.runtime_id, hostname
+                );
+                runtime_info.runtime_id = existing_runtime.runtime_id;
+                runtime_info.runtime_name = existing_runtime.runtime_name;
+            }
+            None => {
+                info!("No existing runtime found, registering new runtime...");
+                client.register_runtime(&runtime_info).await?;
+            }
+        }
     }
+
+    let runtime = Arc::new(RwLock::new(runtime_info));
 
     let heartbeat = HeartbeatService::new(client.clone(), runtime.clone(), &config);
     heartbeat.start().await?;

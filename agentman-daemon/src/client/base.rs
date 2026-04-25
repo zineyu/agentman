@@ -42,17 +42,21 @@ struct TokenInfo {
     expires_at: Instant,
 }
 
+/// 表ID缓存
+#[derive(Clone, Default)]
+struct TableIds {
+    task_table_id: String,
+    runtime_table_id: String,
+    execution_log_table_id: String,
+}
+
 /// Lark Base API 客户端
 pub struct BaseClient {
     http_client: Client,
     config: DaemonConfig,
     token_cache: Arc<RwLock<Option<TokenInfo>>>,
+    table_ids: Arc<RwLock<TableIds>>,
 }
-
-// 表ID常量
-const TASK_TABLE_ID: &str = "YOUR_TASK_TABLE_ID";
-const RUNTIME_TABLE_ID: &str = "YOUR_RUNTIME_TABLE_ID";
-const EXECUTION_LOG_TABLE_ID: &str = "YOUR_EXECUTION_LOG_TABLE_ID";
 
 impl BaseClient {
     /// 创建新的 BaseClient
@@ -66,6 +70,7 @@ impl BaseClient {
             http_client,
             config: config.clone(),
             token_cache: Arc::new(RwLock::new(None)),
+            table_ids: Arc::new(RwLock::new(TableIds::default())),
         })
     }
 
@@ -159,6 +164,72 @@ impl BaseClient {
     async fn clear_token_cache(&self) {
         let mut cache = self.token_cache.write().await;
         *cache = None;
+    }
+
+    /// 初始化表ID，通过查询Base表列表获取
+    pub async fn init_table_ids(&self) -> Result<(), BaseClientError> {
+        let path = format!(
+            "/open-apis/bitable/v1/apps/{}/tables",
+            self.config.base_token
+        );
+
+        let response = self
+            .api_request(reqwest::Method::GET, &path, None, None)
+            .await?;
+
+        let items = response
+            .get("data")
+            .and_then(|d| d.get("items"))
+            .and_then(|i| i.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut table_ids = self.table_ids.write().await;
+
+        for item in items {
+            if let (Some(name), Some(id)) = (
+                item.get("name").and_then(|v| v.as_str()),
+                item.get("table_id").and_then(|v| v.as_str()),
+            ) {
+                match name {
+                    "任务主表" => table_ids.task_table_id = id.to_string(),
+                    "运行时表" => table_ids.runtime_table_id = id.to_string(),
+                    "执行记录表" => table_ids.execution_log_table_id = id.to_string(),
+                    _ => {}
+                }
+            }
+        }
+
+        if table_ids.task_table_id.is_empty() {
+            return Err(BaseClientError::ApiError {
+                code: -1,
+                msg: "任务主表 not found in Base".to_string(),
+            });
+        }
+
+        info!(
+            "Table IDs initialized: task={}, runtime={}, log={}",
+            table_ids.task_table_id,
+            table_ids.runtime_table_id,
+            table_ids.execution_log_table_id
+        );
+
+        Ok(())
+    }
+
+    /// 获取任务表ID
+    async fn task_table_id(&self) -> String {
+        self.table_ids.read().await.task_table_id.clone()
+    }
+
+    /// 获取运行时表ID
+    async fn runtime_table_id(&self) -> String {
+        self.table_ids.read().await.runtime_table_id.clone()
+    }
+
+    /// 获取执行记录表ID
+    async fn execution_log_table_id(&self) -> String {
+        self.table_ids.read().await.execution_log_table_id.clone()
     }
 
     /// 发送API请求，带重试逻辑
@@ -299,7 +370,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.config.base_token, TASK_TABLE_ID
+            self.config.base_token, self.task_table_id().await
         );
 
         let query = vec![
@@ -353,7 +424,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.config.base_token, TASK_TABLE_ID, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let body = json!({
@@ -378,7 +449,7 @@ impl BaseClient {
     ) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.config.base_token, TASK_TABLE_ID, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let body = json!({
@@ -398,7 +469,7 @@ impl BaseClient {
     async fn get_task_field(&self, task_id: &str, field_name: &str) -> Result<String, BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.config.base_token, TASK_TABLE_ID, task_id
+            self.config.base_token, self.task_table_id().await, task_id
         );
 
         let response = self
@@ -417,11 +488,66 @@ impl BaseClient {
         }
     }
 
+    /// 根据主机名查找现有运行时
+    pub async fn find_runtime_by_hostname(
+        &self,
+        hostname: &str,
+    ) -> Result<Option<RuntimeInfo>, BaseClientError> {
+        let filter = format!("CurrentValue.[主机名]=\"{}\"", hostname);
+
+        let path = format!(
+            "/open-apis/bitable/v1/apps/{}/tables/{}/records",
+            self.config.base_token, self.runtime_table_id().await
+        );
+
+        let query = vec![("filter", filter), ("page_size", "1".to_string())];
+
+        let response = self
+            .api_request(reqwest::Method::GET, &path, None, Some(query))
+            .await?;
+
+        let items = response
+            .get("data")
+            .and_then(|d| d.get("items"))
+            .and_then(|i| i.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if items.is_empty() {
+            return Ok(None);
+        }
+
+        let record = &items[0];
+        let fields = record.get("fields").cloned().unwrap_or_default();
+
+        let runtime_info = RuntimeInfo {
+            id: 0,
+            runtime_id: get_str_field(&fields, "运行时ID"),
+            runtime_name: get_str_field(&fields, "运行时名称"),
+            hostname: get_str_field(&fields, "主机名"),
+            ip_address: get_str_field(&fields, "IP地址"),
+            available_agents: get_str_field(&fields, "可用Agent"),
+            status: parse_runtime_status(&get_str_field(&fields, "状态")),
+            last_heartbeat: parse_datetime_field(&fields, "最后心跳")
+                .unwrap_or_else(|| chrono::Local::now().naive_local()),
+            os: get_str_field(&fields, "操作系统"),
+            version: get_str_field(&fields, "版本号"),
+            linked_tasks: Vec::new(),
+        };
+
+        info!(
+            "Found existing runtime {} for hostname {}",
+            runtime_info.runtime_id, hostname
+        );
+
+        Ok(Some(runtime_info))
+    }
+
     /// 注册运行时
     pub async fn register_runtime(&self, runtime_info: &RuntimeInfo) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.config.base_token, RUNTIME_TABLE_ID
+            self.config.base_token, self.runtime_table_id().await
         );
 
         let body = json!({
@@ -451,7 +577,7 @@ impl BaseClient {
 
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.config.base_token, RUNTIME_TABLE_ID
+            self.config.base_token, self.runtime_table_id().await
         );
 
         let query = vec![("filter", filter), ("page_size", "1".to_string())];
@@ -483,7 +609,7 @@ impl BaseClient {
 
         let update_path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.config.base_token, RUNTIME_TABLE_ID, record_id
+            self.config.base_token, self.runtime_table_id().await, record_id
         );
 
         let body = json!({
@@ -505,7 +631,7 @@ impl BaseClient {
     pub async fn create_execution_log(&self, log: &ExecutionLog) -> Result<String, BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records",
-            self.config.base_token, EXECUTION_LOG_TABLE_ID
+            self.config.base_token, self.execution_log_table_id().await
         );
 
         let linked_task_ids: Vec<String> = log
@@ -557,7 +683,7 @@ impl BaseClient {
     ) -> Result<(), BaseClientError> {
         let path = format!(
             "/open-apis/bitable/v1/apps/{}/tables/{}/records/{}",
-            self.config.base_token, EXECUTION_LOG_TABLE_ID, record_id
+            self.config.base_token, self.execution_log_table_id().await, record_id
         );
 
         let body = json!({
@@ -603,8 +729,6 @@ fn parse_task_from_record(record: Value) -> Task {
         last_urge_time: parse_datetime_field(&fields, "最后催办时间"),
         agent_type: parse_agent_type_field(&fields, "Agent类型"),
         work_dir: get_str_field(&fields, "工作目录"),
-        repo_url: get_str_field(&fields, "仓库地址"),
-        branch: get_str_field(&fields, "分支名称"),
         reviewer: get_opt_str_field(&fields, "审核人"),
         review_comment: get_str_field(&fields, "审核意见"),
         review_rejection_reason: get_str_field(&fields, "审核驳回理由"),
@@ -727,6 +851,16 @@ fn parse_link_field(fields: &Value, name: &str) -> Vec<TaskLinkRecord> {
                 })
         })
         .collect()
+}
+
+/// 解析运行时状态
+fn parse_runtime_status(status_str: &str) -> RuntimeStatus {
+    match status_str {
+        "在线" => RuntimeStatus::Online,
+        "离线" => RuntimeStatus::Offline,
+        "忙碌" => RuntimeStatus::Busy,
+        _ => RuntimeStatus::Offline,
+    }
 }
 
 /// 运行时状态转字符串

@@ -30,7 +30,7 @@ pub struct DaemonConfig {
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
-            runtime_id: format!("agentman-{}", uuid::Uuid::new_v4()),
+            runtime_id: generate_stable_runtime_id(),
             runtime_name: "Agentman Daemon".to_string(),
             base_url: "https://open.feishu.cn".to_string(),
             base_token: String::new(),
@@ -80,6 +80,17 @@ impl DaemonConfig {
         }
         Ok(())
     }
+}
+
+/// Generate a stable runtime ID based on hostname
+/// This ensures the same machine always gets the same runtime ID across restarts
+fn generate_stable_runtime_id() -> String {
+    let hostname = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    format!("agentman-{}", hostname)
 }
 
 #[cfg(test)]

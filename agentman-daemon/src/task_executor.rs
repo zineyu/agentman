@@ -10,7 +10,6 @@ use crate::agent::factory::AgentFactory;
 use crate::client::BaseClient;
 use crate::config::DaemonConfig;
 use crate::git::workspace::WorkspaceManager;
-use crate::git::GitManager;
 use crate::models::{
     execution::{AgentType as ExecutionAgentType, ExecutionLog, ExecutionStatus, LinkRecord, TriggerMode},
     task::{AgentType, Task},
@@ -22,7 +21,6 @@ const MAX_RETRIES: u32 = 3;
 pub struct TaskExecutor {
     client: Arc<BaseClient>,
     config: DaemonConfig,
-    git_manager: GitManager,
     workspace_manager: WorkspaceManager,
 }
 
@@ -33,7 +31,6 @@ impl TaskExecutor {
         Self {
             client,
             config: config.clone(),
-            git_manager: GitManager::new(),
             workspace_manager,
         }
     }
@@ -135,19 +132,8 @@ impl TaskExecutor {
         let workspace = self
             .workspace_manager
             .prepare_workspace(&task_id);
-        let repo_dir = workspace.join("repo");
-
-        if let Err(e) = self
-            .setup_repository(&task, &repo_dir, is_rejection_retry)
-            .await
-        {
-            error!("Failed to setup repository: {}", e);
-            self.handle_execution_failure(
-                &task, "仓库克隆或分支切换失败", ""
-            )
-            .await?;
-            return Err(e);
-        }
+        let work_dir = workspace.join("work");
+        std::fs::create_dir_all(&work_dir)?;
 
         let mut execution_log = ExecutionLog {
             id: 0,
@@ -249,7 +235,7 @@ impl TaskExecutor {
         });
 
         let result = adapter
-            .execute_with_stream(&task, &repo_dir, callback
+            .execute_with_stream(&task, &work_dir, callback
             )
             .await;
 
@@ -261,7 +247,7 @@ impl TaskExecutor {
                 error!("Agent execution error: {}", e);
                 self.finalize_execution(
                     &task,
-                    &repo_dir,
+                    &work_dir,
                     &log_record_id,
                     &mut execution_log,
                     false,
@@ -278,7 +264,7 @@ impl TaskExecutor {
 
         self.finalize_execution(
             &task,
-            &repo_dir,
+            &work_dir,
             &log_record_id,
             &mut execution_log,
             success,
@@ -304,70 +290,21 @@ impl TaskExecutor {
         Ok(())
     }
 
-    async fn setup_repository(
-        &self,
-        task: &Task,
-        repo_dir: &std::path::Path,
-        is_retry: bool,
-    ) -> anyhow::Result<()> {
-        if task.repo_url.is_empty() {
-            info!("No repository URL provided, skipping git operations");
-            std::fs::create_dir_all(repo_dir)?;
-            return Ok(());
-        }
-
-        if repo_dir.exists() && is_retry {
-            info!(
-                "Repository exists for retry, pulling latest: {:?}",
-                repo_dir
-            );
-            self.git_manager.pull(repo_dir, &task.branch)?;
-        } else {
-            if repo_dir.exists() {
-                info!(
-                    "Repository directory exists, removing: {:?}",
-                    repo_dir
-                );
-                std::fs::remove_dir_all(repo_dir)?;
-            }
-
-            self.git_manager
-                .clone_repo(&task.repo_url, repo_dir)?;
-        }
-
-        self.git_manager
-            .checkout_branch(repo_dir, &task.branch)?;
-        self.git_manager.config_user(
-            repo_dir,
-            "Agentman Daemon",
-            "daemon@agentman.local",
-        )?;
-
-        info!("Repository setup complete at {:?}", repo_dir);
-        Ok(())
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn finalize_execution(
         &self,
         task: &Task,
-        repo_dir: &std::path::Path,
+        _work_dir: &std::path::Path,
         log_record_id: &str,
         execution_log: &mut ExecutionLog,
         success: bool,
         error_info: &str,
         output: &str,
     ) -> anyhow::Result<()> {
-        let commit_hash = self
-            .git_manager
-            .get_current_commit(repo_dir)
-            .unwrap_or_default();
-
         execution_log.end_time =
             Some(chrono::Local::now().naive_local());
         execution_log.execution_output = output.to_string();
         execution_log.error_info = error_info.to_string();
-        execution_log.commit_hash = commit_hash.clone();
         execution_log.execution_status = if success {
             ExecutionStatus::Success
         } else {
@@ -388,7 +325,7 @@ impl TaskExecutor {
                 .update_task_status(
                     &task.record_id,
                     "待审核",
-                    &format!("执行成功\n输出:\n{}\n提交记录: {}", output, commit_hash),
+                    &format!("执行成功\n输出:\n{}", output),
                 )
                 .await
             {

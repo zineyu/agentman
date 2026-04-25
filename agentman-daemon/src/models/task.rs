@@ -125,14 +125,6 @@ pub struct Task {
     #[serde(rename = "工作目录")]
     pub work_dir: String,
 
-    /// 仓库地址 (Git URL)
-    #[serde(rename = "仓库地址")]
-    pub repo_url: String,
-
-    /// 分支名称
-    #[serde(rename = "分支名称")]
-    pub branch: String,
-
     /// 审核人
     #[serde(rename = "审核人")]
     pub reviewer: Option<String>,
