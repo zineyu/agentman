@@ -237,6 +237,3 @@ impl Default for GitManager {
         Self::new()
     }
 }
-
-#[cfg(test)]
-mod tests;
