@@ -41,7 +41,7 @@ impl CommandLineAdapter {
             AgentType::Opencode => vec!["opencode"],
             AgentType::Cursor => vec!["cursor"],
             AgentType::Other => {
-                return Err(anyhow::anyhow!("Cannot auto-detect CLI for Other agent type"));
+                return Err(anyhow::anyhow!("{}", rust_i18n::t!("cli_adapter.cannot_auto_detect")));
             }
         };
 
@@ -52,9 +52,8 @@ impl CommandLineAdapter {
         }
 
         Err(anyhow::anyhow!(
-            "No CLI tool found for {:?}. Tried: {:?}",
-            agent_type,
-            cli_names
+            "{}",
+            rust_i18n::t!("cli_adapter.no_cli_found", agent_type = format!("{:?}", agent_type), tried = format!("{:?}", cli_names))
         ))
     }
 
@@ -125,27 +124,30 @@ impl AgentAdapter for CommandLineAdapter {
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult>> + Send + 'a>> {
         Box::pin(async move {
             info!(
-                "Executing task {} with {} CLI in workspace {}",
-                task.id,
-                self.name(),
-                workspace.display()
+                "{}",
+                rust_i18n::t!(
+                    "cli_adapter.executing_task",
+                    id = task.id,
+                    cli = self.name(),
+                    workspace = workspace.display()
+                )
             );
 
             let mut cmd = self.build_command(task, workspace);
 
-            debug!("Running command: {:?}", cmd);
+            debug!("{}", rust_i18n::t!("cli_adapter.running_command", command = format!("{:?}", cmd)));
 
             let output = match timeout(DEFAULT_TIMEOUT, cmd.output()).await {
                 Ok(Ok(output)) => output,
                 Ok(Err(e)) => {
-                    error!("Failed to execute {}: {}", self.cli_name, e);
+                    error!("{}", rust_i18n::t!("cli_adapter.failed_execute", cli = self.cli_name, error = e));
                     return Ok(ExecutionResult::failed(
                         String::new(),
-                        format!("Process execution failed: {}", e),
+                        format!("{}", rust_i18n::t!("cli_adapter.process_execution_failed", error = e)),
                     ));
                 }
                 Err(_) => {
-                    warn!("Task {} execution timed out after 30 minutes", task.id);
+                    warn!("{}", rust_i18n::t!("cli_adapter.task_timeout", id = task.id));
                     return Ok(ExecutionResult::timeout(String::new()));
                 }
             };
@@ -155,17 +157,17 @@ impl AgentAdapter for CommandLineAdapter {
             let combined_output = format!("{}{}", stdout, stderr);
 
             if output.status.success() {
-                info!("Task {} executed successfully with {}", task.id, self.name());
+                info!("{}", rust_i18n::t!("cli_adapter.task_executed_success", id = task.id, cli = self.name()));
                 Ok(ExecutionResult::success(combined_output))
             } else {
                 let exit_code = output.status.code().unwrap_or(-1);
                 warn!(
-                    "Task {} failed with exit code {} using {}",
-                    task.id, exit_code, self.name()
+                    "{}",
+                    rust_i18n::t!("cli_adapter.task_failed_exit_code", id = task.id, code = exit_code, cli = self.name())
                 );
                 Ok(ExecutionResult::failed(
                     combined_output,
-                    format!("Process exited with code {}", exit_code),
+                    format!("{}", rust_i18n::t!("cli_adapter.process_exited", code = exit_code)),
                 ))
             }
         })
@@ -179,25 +181,23 @@ impl AgentAdapter for CommandLineAdapter {
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult>> + Send + 'a>> {
         Box::pin(async move {
             info!(
-                "Executing task {} with {} CLI in workspace {} (streaming)",
-                task.id,
-                self.name(),
-                workspace.display()
+                "{}",
+                rust_i18n::t!("cli_adapter.executing_task_streaming", id = task.id, cli = self.name(), workspace = workspace.display())
             );
 
             let mut cmd = self.build_command(task, workspace);
             cmd.stdout(Stdio::piped());
             cmd.stderr(Stdio::piped());
 
-            debug!("Running command: {:?}", cmd);
+            debug!("{}", rust_i18n::t!("cli_adapter.running_command", command = format!("{:?}", cmd)));
 
             let mut child = match cmd.spawn() {
                 Ok(child) => child,
                 Err(e) => {
-                    error!("Failed to spawn {}: {}", self.cli_name, e);
+                    error!("{}", rust_i18n::t!("cli_adapter.failed_spawn", cli = self.cli_name, error = e));
                     return Ok(ExecutionResult::failed(
                         String::new(),
-                        format!("Process spawn failed: {}", e),
+                        format!("{}", rust_i18n::t!("cli_adapter.process_spawn_failed", error = e)),
                     ));
                 }
             };
@@ -240,15 +240,15 @@ impl AgentAdapter for CommandLineAdapter {
             {
                 Ok(Ok(status)) => status,
                 Ok(Err(e)) => {
-                    error!("Failed to wait for {}: {}", self.cli_name, e);
+                    error!("{}", rust_i18n::t!("cli_adapter.failed_wait", cli = self.cli_name, error = e));
                     let output = combined_output.lock().await.clone();
                     return Ok(ExecutionResult::failed(
                         output,
-                        format!("Process wait failed: {}", e),
+                        format!("{}", rust_i18n::t!("cli_adapter.process_wait_failed", error = e)),
                     ));
                 }
                 Err(_) => {
-                    warn!("Task {} execution timed out after 30 minutes", task.id);
+                    warn!("{}", rust_i18n::t!("cli_adapter.task_timeout", id = task.id));
                     let _ = child.kill().await;
                     let output = combined_output.lock().await.clone();
                     return Ok(ExecutionResult::timeout(output));
@@ -258,17 +258,17 @@ impl AgentAdapter for CommandLineAdapter {
             let output = combined_output.lock().await.clone();
 
             if result.success() {
-                info!("Task {} executed successfully with {}", task.id, self.name());
+                info!("{}", rust_i18n::t!("cli_adapter.task_executed_success", id = task.id, cli = self.name()));
                 Ok(ExecutionResult::success(output))
             } else {
                 let exit_code = result.code().unwrap_or(-1);
                 warn!(
-                    "Task {} failed with exit code {} using {}",
-                    task.id, exit_code, self.name()
+                    "{}",
+                    rust_i18n::t!("cli_adapter.task_failed_exit_code", id = task.id, code = exit_code, cli = self.name())
                 );
                 Ok(ExecutionResult::failed(
                     output,
-                    format!("Process exited with code {}", exit_code),
+                    format!("{}", rust_i18n::t!("cli_adapter.process_exited", code = exit_code)),
                 ))
             }
         })

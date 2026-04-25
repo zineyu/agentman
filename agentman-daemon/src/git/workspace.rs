@@ -20,9 +20,9 @@ impl WorkspaceManager {
         if !workspace_path.exists() {
             std::fs::create_dir_all(&workspace_path)
                 .expect("Failed to create workspace directory");
-            info!("Created workspace at {:?}", workspace_path);
+            info!("{}", rust_i18n::t!("workspace.created", path = workspace_path.display()));
         } else {
-            debug!("Workspace already exists at {:?}", workspace_path);
+            debug!("{}", rust_i18n::t!("workspace.already_exists", path = workspace_path.display()));
         }
 
         workspace_path
@@ -35,11 +35,11 @@ impl WorkspaceManager {
 
         if workspace_path.exists() {
             std::fs::remove_dir_all(&workspace_path)?;
-            info!("Cleaned up workspace at {:?}", workspace_path);
+            info!("{}", rust_i18n::t!("workspace.cleaned_up", path = workspace_path.display()));
         } else {
             warn!(
-                "Workspace does not exist, skipping cleanup: {:?}",
-                workspace_path
+                "{}",
+                rust_i18n::t!("workspace.does_not_exist", path = workspace_path.display())
             );
         }
 
