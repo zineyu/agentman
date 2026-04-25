@@ -39,8 +39,8 @@ impl HeartbeatService {
 
                 let runtime_info = runtime.read().await;
                 match client.update_heartbeat(&runtime_info).await {
-                    Ok(_) => debug!("Heartbeat sent successfully"),
-                    Err(e) => warn!("Failed to send heartbeat: {}", e),
+                    Ok(_) => debug!("{}", rust_i18n::t!("heartbeat.sent_successfully")),
+                    Err(e) => warn!("{}", rust_i18n::t!("heartbeat.failed", error = e)),
                 }
             }
         });

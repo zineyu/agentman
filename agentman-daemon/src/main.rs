@@ -3,6 +3,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::info;
 
+rust_i18n::i18n!("locales", fallback = "en");
+
 use agentman_daemon::{
     client::BaseClient,
     config::DaemonConfig,
@@ -32,32 +34,36 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = DaemonConfig::load(cli.config.as_deref())?;
 
-    info!("Agentman Daemon starting...");
-    info!("Runtime ID: {}", config.runtime_id);
-    info!("Base URL: {}", config.base_url);
+    info!("{}", rust_i18n::t!("daemon.starting"));
+    info!("{}", rust_i18n::t!("daemon.runtime_id", id = config.runtime_id));
+    info!("{}", rust_i18n::t!("daemon.base_url", url = config.base_url));
 
     let client = Arc::new(BaseClient::new(&config)?);
 
-    info!("Initializing table IDs...");
+    info!("{}", rust_i18n::t!("daemon.init_table_ids"));
     client.init_table_ids().await?;
 
     let mut runtime_info = RuntimeInfo::from_config(&config);
 
     if cli.register {
-        info!("Checking for existing runtime...");
+        info!("{}", rust_i18n::t!("daemon.check_existing_runtime"));
         let hostname = runtime_info.hostname.clone();
 
         match client.find_runtime_by_hostname(&hostname).await? {
             Some(existing_runtime) => {
                 info!(
-                    "Found existing runtime {} for hostname {}, reusing",
-                    existing_runtime.runtime_id, hostname
+                    "{}",
+                    rust_i18n::t!(
+                        "daemon.found_existing_runtime",
+                        id = existing_runtime.runtime_id,
+                        hostname = hostname
+                    )
                 );
                 runtime_info.runtime_id = existing_runtime.runtime_id;
                 runtime_info.runtime_name = existing_runtime.runtime_name;
             }
             None => {
-                info!("No existing runtime found, registering new runtime...");
+                info!("{}", rust_i18n::t!("daemon.no_existing_runtime"));
                 client.register_runtime(&runtime_info).await?;
             }
         }
@@ -71,13 +77,13 @@ async fn main() -> anyhow::Result<()> {
     let executor = TaskExecutor::new(client.clone(), &config);
 
     if cli.once {
-        info!("Running in once mode");
+        info!("{}", rust_i18n::t!("daemon.once_mode"));
         executor.run_once().await?;
     } else {
-        info!("Starting main loop");
+        info!("{}", rust_i18n::t!("daemon.start_main_loop"));
         executor.run_loop().await?;
     }
 
-    info!("Agentman Daemon shutting down...");
+    info!("{}", rust_i18n::t!("daemon.shutting_down"));
     Ok(())
 }
