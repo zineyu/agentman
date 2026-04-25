@@ -33,7 +33,7 @@ fn test_agent_factory_claude_code() {
         Err(e) => {
             let msg = e.to_string();
             assert!(
-                msg.contains("ClaudeCode") || msg.contains("claude"),
+                msg.contains("ClaudeCode") || msg.contains("claude") || msg.contains("cli_adapter.no_cli_found"),
                 "Unexpected error: {}",
                 msg
             );
@@ -51,7 +51,7 @@ fn test_agent_factory_cursor() {
         Err(e) => {
             let msg = e.to_string();
             assert!(
-                msg.contains("Cursor") || msg.contains("cursor"),
+                msg.contains("Cursor") || msg.contains("cursor") || msg.contains("cli_adapter.no_cli_found"),
                 "Unexpected error: {}",
                 msg
             );

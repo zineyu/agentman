@@ -21,6 +21,7 @@ fn create_test_config(base_url: &str) -> DaemonConfig {
         max_concurrent_tasks: 3,
         workspace_dir: "./workspace".to_string(),
         log_level: "info".to_string(),
+        language: "en".to_string(),
     }
 }
 
