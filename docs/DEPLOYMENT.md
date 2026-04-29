@@ -226,14 +226,32 @@ Agentman does not currently use environment variables for configuration. All set
 
 ## Running as systemd Service
 
-### Create Service File
+### Quick Install (Recommended)
 
-Create `/etc/systemd/system/agentman-daemon.service`:
+Use the provided install script for one-command deployment:
+
+```bash
+cd agentman-daemon
+./install.sh                    # Install to /opt/agentman (default)
+# or
+./install.sh /usr/local/agentman # Custom install directory
+```
+
+The script will:
+1. Build the release binary
+2. Create a dedicated `agentman` user
+3. Install files to the target directory
+4. Install and enable the systemd service
+
+### Manual Service Setup
+
+If you prefer manual setup, create `/etc/systemd/system/agentman-daemon.service`:
 
 ```ini
 [Unit]
 Description=Agentman Task Management Daemon
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -241,25 +259,21 @@ User=agentman
 Group=agentman
 WorkingDirectory=/opt/agentman
 ExecStart=/opt/agentman/agentman-daemon
-Restart=always
+Restart=on-failure
 RestartSec=10
-
-# Environment
 Environment="RUST_LOG=info"
-Environment="RUST_BACKTRACE=1"
 
-# Security hardening
+# Security
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/agentman/workspace
+ReadWritePaths=/opt/agentman/workspace /opt/agentman/logs
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 
 # Resource limits
 LimitNOFILE=65536
-LimitNPROC=4096
 
 [Install]
 WantedBy=multi-user.target

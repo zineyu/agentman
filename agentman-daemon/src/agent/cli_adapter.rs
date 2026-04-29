@@ -13,6 +13,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::agent::{AgentAdapter, AgentError, ExecutionResult, Result};
 use crate::models::task::{AgentType, Task};
+use crate::utils::strip_ansi_codes;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
@@ -88,7 +89,8 @@ impl CommandLineAdapter {
         workspace: &Path,
     ) -> Command {
         let mut cmd = Command::new(&self.cli_name);
-        cmd.current_dir(workspace);
+        cmd.current_dir(workspace)
+            .stdin(Stdio::null());
 
         let prompt = format!(
             "Task #{}: {}\n\n{}",
@@ -103,7 +105,7 @@ impl CommandLineAdapter {
                 cmd.arg(&prompt);
             }
             AgentType::Opencode => {
-                cmd.arg("--task").arg(&prompt);
+                cmd.arg("run").arg(&prompt);
             }
             AgentType::Cursor => {
                 cmd.arg("--prompt").arg(&prompt);
@@ -153,8 +155,8 @@ impl AgentAdapter for CommandLineAdapter {
                 }
             };
 
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let stdout = strip_ansi_codes(&String::from_utf8_lossy(&output.stdout));
+            let stderr = strip_ansi_codes(&String::from_utf8_lossy(&output.stderr));
             let combined_output = format!("{}{}", stdout, stderr);
 
             if output.status.success() {
@@ -219,17 +221,19 @@ impl AgentAdapter for CommandLineAdapter {
 
             let read_stdout = async move {
                 while let Ok(Some(line)) = stdout_reader.next_line().await {
-                    let line_with_nl = format!("{}\n", line);
+                    let clean = strip_ansi_codes(&line);
+                    let line_with_nl = format!("{}\n", clean);
                     stdout_output.lock().await.push_str(&line_with_nl);
-                    stdout_callback.lock().await(&line);
+                    stdout_callback.lock().await(&clean);
                 }
             };
 
             let read_stderr = async move {
                 while let Ok(Some(line)) = stderr_reader.next_line().await {
-                    let line_with_nl = format!("{}\n", line);
+                    let clean = strip_ansi_codes(&line);
+                    let line_with_nl = format!("{}\n", clean);
                     stderr_output.lock().await.push_str(&line_with_nl);
-                    stderr_callback.lock().await(&line);
+                    stderr_callback.lock().await(&clean);
                 }
             };
 
