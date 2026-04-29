@@ -140,14 +140,6 @@ impl DaemonConfig {
         Ok(())
     }
 
-    /// Set the locale based on the configured language
-    pub fn set_locale(&self) {
-        let locale = match self.language.as_str() {
-            "zh" | "zh-CN" | "zh-Hans" => "zh",
-            _ => "en",
-        };
-        rust_i18n::set_locale(locale);
-    }
 }
 
 /// Generate a stable runtime ID based on hostname

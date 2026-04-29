@@ -91,10 +91,10 @@ impl BaseClient {
         let mut cache = self.token_cache.write().await;
 
         // 双重检查
-        if let Some(token_info) = cache.as_ref() {
-            if token_info.expires_at > Instant::now() + Duration::from_secs(300) {
-                return Ok(token_info.token.clone());
-            }
+        if let Some(token_info) = cache.as_ref()
+            && token_info.expires_at > Instant::now() + Duration::from_secs(300)
+        {
+            return Ok(token_info.token.clone());
         }
 
         let url = format!(
@@ -155,7 +155,7 @@ impl BaseClient {
             expires_at,
         });
 
-        debug!("{}", rust_i18n::t!("base_client.token_refreshed", seconds = expire_secs));
+        debug!("访问令牌已刷新，将在 {} 秒后过期", expire_secs);
 
         Ok(token)
     }
@@ -208,13 +208,8 @@ impl BaseClient {
         }
 
         info!(
-            "{}",
-            rust_i18n::t!(
-                "base_client.table_ids_initialized",
-                task = table_ids.task_table_id,
-                runtime = table_ids.runtime_table_id,
-                log = table_ids.execution_log_table_id
-            )
+            "表 ID 已初始化: 任务={}, 运行时={}, 日志={}",
+            table_ids.task_table_id, table_ids.runtime_table_id, table_ids.execution_log_table_id
         );
 
         Ok(())
@@ -264,15 +259,7 @@ impl BaseClient {
                     .json(b);
             }
 
-            debug!(
-                "{}",
-                rust_i18n::t!(
-                    "base_client.api_request",
-                    method = method.to_string(),
-                    path = path,
-                    attempt = attempt + 1
-                )
-            );
+            debug!("API 请求: {} {} (尝试 {})", method, path, attempt + 1);
 
             match request.send().await {
                 Ok(response) => {
@@ -282,13 +269,8 @@ impl BaseClient {
                         Ok(v) => v,
                         Err(e) => {
                             warn!(
-                                "{}",
-                                rust_i18n::t!(
-                                    "base_client.parse_response_error",
-                                    status = status.as_u16(),
-                                    error = e,
-                                    raw = response_text
-                                )
+                                "无法解析响应为 JSON (状态: {}): {}\n原始响应: {}",
+                                status.as_u16(), e, response_text
                             );
                             return Err(BaseClientError::SerializationError(e));
                         }
@@ -297,14 +279,14 @@ impl BaseClient {
                     // HTTP 429 - 速率限制
                     if status == StatusCode::TOO_MANY_REQUESTS {
                         let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
-                        warn!("{}", rust_i18n::t!("base_client.rate_limited", delay = format!("{:?}", delay)));
+                        warn!("HTTP 429 速率限制，将在 {:?} 后重试", delay);
                         tokio::time::sleep(delay).await;
                         continue;
                     }
 
                     // HTTP 401 - token过期，清除缓存并重试
                     if status == StatusCode::UNAUTHORIZED {
-                        warn!("{}", rust_i18n::t!("base_client.unauthorized"));
+                        warn!("HTTP 401 未授权，清除令牌缓存并重试");
                         self.clear_token_cache().await;
                         continue;
                     }
@@ -327,13 +309,10 @@ impl BaseClient {
                         1254290 | 1254291 | 1255040 | 1254607 => {
                             let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
                             warn!(
-                                "{}",
-                                rust_i18n::t!(
-                                    "base_client.retryable_error",
-                                    status = code,
-                                    message = response_body.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown"),
-                                    delay = format!("{:?}", delay)
-                                )
+                                "可重试的 API 错误 {} ({})，将在 {:?} 后重试",
+                                code,
+                                response_body.get("msg").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                                delay
                             );
                             tokio::time::sleep(delay).await;
                             continue;
@@ -355,13 +334,8 @@ impl BaseClient {
                     if e.is_timeout() || e.is_connect() {
                         let delay = Duration::from_secs(2_u64.pow(attempt) + 1);
                         warn!(
-                            "{}",
-                            rust_i18n::t!(
-                                "base_client.network_error",
-                                attempt = attempt + 1,
-                                error = e,
-                                delay = format!("{:?}", delay)
-                            )
+                            "网络错误 (尝试 {}): {}，将在 {:?} 后重试",
+                            attempt + 1, e, delay
                         );
                         tokio::time::sleep(delay).await;
                         continue;

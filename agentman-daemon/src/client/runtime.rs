@@ -57,14 +57,7 @@ impl BaseClient {
             linked_tasks: Vec::new(),
         };
 
-        info!(
-            "{}",
-            rust_i18n::t!(
-                "base_client.found_existing_runtime",
-                id = runtime_info.runtime_id,
-                hostname = hostname
-            )
-        );
+        info!("找到现有运行时 {}（主机名: {}）", runtime_info.runtime_id, hostname);
 
         Ok(Some(runtime_info))
     }
@@ -104,13 +97,7 @@ impl BaseClient {
             *cached_id = Some(record_id.to_string());
         }
 
-        info!(
-            "{}",
-            rust_i18n::t!(
-                "base_client.registered_runtime",
-                id = runtime_info.runtime_id
-            )
-        );
+        info!("已注册运行时 {}", runtime_info.runtime_id);
 
         Ok(())
     }
@@ -148,13 +135,7 @@ impl BaseClient {
                     .unwrap_or_default();
 
                 if items.is_empty() {
-                    warn!(
-                        "{}",
-                        rust_i18n::t!(
-                            "base_client.runtime_not_found_registering",
-                            id = runtime_info.runtime_id
-                        )
-                    );
+                    warn!("运行时 {} 不存在，改为注册", runtime_info.runtime_id);
                     return self.register_runtime(runtime_info).await;
                 }
 
@@ -186,13 +167,7 @@ impl BaseClient {
         self.api_request(reqwest::Method::PUT, &update_path, Some(body), None)
             .await?;
 
-        debug!(
-            "{}",
-            rust_i18n::t!(
-                "base_client.updated_heartbeat",
-                id = runtime_info.runtime_id
-            )
-        );
+        debug!("已更新运行时 {} 的心跳", runtime_info.runtime_id);
 
         Ok(())
     }

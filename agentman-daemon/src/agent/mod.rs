@@ -38,8 +38,8 @@ pub struct ExecutionResult {
     pub output: String,
     /// 错误信息
     pub error_info: Option<String>,
-    /// Git commit hash
-    pub commit_hash: Option<String>,
+    /// 执行摘要 / 备注
+    pub summary: Option<String>,
 }
 
 impl ExecutionResult {
@@ -49,7 +49,7 @@ impl ExecutionResult {
             success: true,
             output,
             error_info: None,
-            commit_hash: None,
+            summary: None,
         }
     }
 
@@ -59,7 +59,7 @@ impl ExecutionResult {
             success: false,
             output,
             error_info: Some(error),
-            commit_hash: None,
+            summary: None,
         }
     }
 
@@ -69,7 +69,7 @@ impl ExecutionResult {
             success: false,
             output,
             error_info: Some("Execution timed out".to_string()),
-            commit_hash: None,
+            summary: None,
         }
     }
 }

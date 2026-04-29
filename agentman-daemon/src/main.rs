@@ -4,8 +4,6 @@ use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-rust_i18n::i18n!("locales", fallback = "en");
-
 use agentman_daemon::{
     client::BaseClient,
     config::DaemonConfig,
@@ -34,38 +32,35 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     let config = DaemonConfig::load(cli.config.as_deref())?;
-    config.set_locale();
-
-    info!("{}", rust_i18n::t!("daemon.starting"));
-    info!("{}", rust_i18n::t!("daemon.runtime_id", id = config.runtime_id));
-    info!("{}", rust_i18n::t!("daemon.base_url", url = config.base_url));
+    info!("Agentman Daemon 启动中...");
+    info!("运行时 ID: {}", config.runtime_id);
+    info!("Base URL: {}", config.base_url);
 
     let client = Arc::new(BaseClient::new(&config)?);
 
-    info!("{}", rust_i18n::t!("daemon.init_table_ids"));
+    info!("正在初始化表 ID...");
     client.init_table_ids().await?;
 
     let mut runtime_info = RuntimeInfo::from_config(&config);
 
     if cli.register {
-        info!("{}", rust_i18n::t!("daemon.check_existing_runtime"));
+        info!("正在检查现有运行时...");
         let hostname = runtime_info.hostname.clone();
 
         match client.find_runtime_by_hostname(&hostname).await? {
             Some(existing_runtime) => {
                 info!(
                     "{}",
-                    rust_i18n::t!(
-                        "daemon.found_existing_runtime",
-                        id = existing_runtime.runtime_id,
-                        hostname = hostname
+                    format!(
+                        "找到现有运行时 {}（主机名: {}），复用",
+                        existing_runtime.runtime_id, hostname
                     )
                 );
                 runtime_info.runtime_id = existing_runtime.runtime_id;
                 runtime_info.runtime_name = existing_runtime.runtime_name;
             }
             None => {
-                info!("{}", rust_i18n::t!("daemon.no_existing_runtime"));
+                info!("未找到现有运行时，正在注册新运行时...");
                 client.register_runtime(&runtime_info).await?;
             }
         }
@@ -89,10 +84,10 @@ async fn main() -> anyhow::Result<()> {
     ));
 
     if cli.once {
-        info!("{}", rust_i18n::t!("daemon.once_mode"));
+        info!("以单次模式运行");
         executor.run_once().await?;
     } else {
-        info!("{}", rust_i18n::t!("daemon.start_main_loop"));
+        info!("启动主循环");
 
         let executor_for_task = executor.clone();
         let executor_handle = tokio::spawn(async move {
@@ -100,20 +95,20 @@ async fn main() -> anyhow::Result<()> {
         });
 
         tokio::signal::ctrl_c().await?;
-        info!("{}", rust_i18n::t!("daemon.received_shutdown_signal"));
+        info!("收到关闭信号，正在停止执行器...");
         cancel_token.cancel();
         executor.shutdown();
         if let Err(e) = executor_handle.await {
-            warn!("{}", rust_i18n::t!("daemon.executor_shutdown_error", error = e));
+            warn!("等待执行器关闭时出错: {}", e);
         }
     }
 
-    info!("{}", rust_i18n::t!("daemon.shutting_down"));
+    info!("Agentman Daemon 正在关闭...");
     {
         let mut runtime_info = runtime.write().await;
         runtime_info.status = RuntimeStatus::Offline;
         if let Err(e) = client.update_heartbeat(&runtime_info).await {
-            warn!("{}", rust_i18n::t!("daemon.failed_update_status", error = e));
+            warn!("更新运行时状态为离线失败: {}", e);
         }
     }
     Ok(())

@@ -44,12 +44,12 @@ impl HeartbeatService {
                     _ = ticker.tick() => {
                         let runtime_info = runtime.read().await;
                         match client.update_heartbeat(&runtime_info).await {
-                            Ok(_) => debug!("{}", rust_i18n::t!("heartbeat.sent_successfully")),
-                            Err(e) => warn!("{}", rust_i18n::t!("heartbeat.failed", error = e)),
+                            Ok(_) => debug!("心跳发送成功"),
+                            Err(e) => warn!("发送心跳失败: {}", e),
                         }
                     }
                     _ = cancel.cancelled() => {
-                        debug!("{}", rust_i18n::t!("heartbeat.shutting_down"));
+                        debug!("心跳服务正在关闭");
                         break;
                     }
                 }

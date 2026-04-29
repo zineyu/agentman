@@ -86,7 +86,6 @@
 - [ ] 飞书应用凭证有效 (`app_id`, `app_secret`)
 - [ ] `lark-cli` 已安装并登录 (`lark-cli auth login`)
 - [ ] 至少一个 Agent CLI 已安装（如 `claude`, `codex`, `opencode` 等）
-- [ ] Git 已配置（用于仓库克隆）
 - [ ] 网络可访问 `https://open.feishu.cn`
 
 ### 2.2 配置文件
@@ -147,8 +146,6 @@ lark-cli base +table-list --base-token YOUR_BASE_TOKEN_HERE
   "任务状态": "待办",
   "优先级": "P1",
   "Agent类型": "claude-code",
-  "仓库地址": "https://github.com/example/test-repo",
-  "分支名称": "main",
   "预计工时": 1,
   "重试次数": 0,
   "催办次数": 0
@@ -198,7 +195,7 @@ TC-E2E-01
 1. Agentman Daemon 已编译 (`cargo build`)
 2. `config.toml` 已配置正确的 `app_id`, `app_secret`, `base_token`
 3. 至少一个 Agent CLI 可用（如 `claude`）
-4. 测试用 Git 仓库可访问
+4. 工作目录可写且磁盘空间充足
 
 #### 测试步骤
 
@@ -215,14 +212,13 @@ TC-E2E-01
 | 任务状态 | `待办` |
 | 优先级 | `P1` |
 | Agent类型 | `claude-code` |
-| 仓库地址 | `https://github.com/example/test-repo`（替换为可用的公开仓库） |
-| 分支名称 | `main` |
+
 | 预计工时 | `1` |
 
 > 或使用 lark-cli 创建：
 > ```bash
 > lark-cli base +record-create --base-token YOUR_BASE_TOKEN_HERE --table-id YOUR_TASK_TABLE_ID \
->   --json '{"任务标题":"E2E-01-正常Agent任务流","任务描述":"在README.md末尾添加一行文本","执行者类型":"agent","执行者":"agentman-test-001","任务状态":"待办","Agent类型":"claude-code","仓库地址":"https://github.com/example/test-repo","分支名称":"main","预计工时":1}'
+>   --json '{"任务标题":"E2E-01-正常Agent任务流","任务描述":"在README.md末尾添加一行文本","执行者类型":"agent","执行者":"agentman-test-001","任务状态":"待办","Agent类型":"claude-code","预计工时":1}'
 > ```
 
 **Step 2** - 启动 Daemon
@@ -688,7 +684,6 @@ lark-cli base +record-create --base-token YOUR_BASE_TOKEN_HERE --table-id YOUR_T
     "执行者": "agentman-test-001",
     "任务状态": "待办",
     "Agent类型": "claude-code",
-    "仓库地址": "https://github.com/example/repo-a",
     "分配的运行时": [{"id": "recRuntimeAxxx"}]
   }'
 ```
@@ -704,7 +699,6 @@ lark-cli base +record-create --base-token YOUR_BASE_TOKEN_HERE --table-id YOUR_T
     "执行者": "agentman-test-002",
     "任务状态": "待办",
     "Agent类型": "claude-code",
-    "仓库地址": "https://github.com/example/repo-b",
     "分配的运行时": [{"id": "recRuntimeBxxx"}]
   }'
 ```
@@ -901,15 +895,13 @@ lark-cli base +record-list --base-token YOUR_BASE_TOKEN_HERE --table-id YOUR_RUN
    AND(CurrentValue.[任务状态]="待办",CurrentValue.[执行者]="agentman-test-001")
    ```
 
-### 5.2 仓库克隆失败
+### 5.2 工作目录创建失败
 
-**现象**: Daemon 日志显示 `Failed to setup repository`
+**现象**: Daemon 日志显示工作目录创建失败
 
 **排查步骤**:
-1. 确认仓库地址可访问（`git clone <url>` 测试）
-2. 检查是否有仓库访问权限（私有仓库需配置 SSH key 或 token）
-3. 检查 `workspace_dir` 路径是否存在且可写
-4. 检查磁盘空间是否充足
+1. 检查 `workspace_dir` 路径是否存在且可写
+2. 检查磁盘空间是否充足
 
 ### 5.3 Agent CLI 执行失败
 
@@ -1049,7 +1041,6 @@ TASK_TABLE="YOUR_TASK_TABLE_ID"
 
 RUNTIME_ID="${1:-agentman-test-001}"
 AGENT_TYPE="${2:-claude-code}"
-REPO_URL="${3:-https://github.com/example/test-repo}"
 
 echo "Creating test task for runtime: $RUNTIME_ID"
 
@@ -1062,8 +1053,6 @@ lark-cli base +record-create --base-token "$BASE_TOKEN" --table-id "$TASK_TABLE"
     \"任务状态\": \"待办\",
     \"优先级\": \"P1\",
     \"Agent类型\": \"$AGENT_TYPE\",
-    \"仓库地址\": \"$REPO_URL\",
-    \"分支名称\": \"main\",
     \"预计工时\": 1,
     \"重试次数\": 0,
     \"催办次数\": 0
@@ -1149,8 +1138,6 @@ echo "Test task created."
 | 最后催办时间 | `YOUR_LAST_URGE_FIELD_ID` | datetime |
 | Agent类型 | `YOUR_AGENT_TYPE_FIELD_ID` | select |
 | 工作目录 | `YOUR_WORKSPACE_FIELD_ID` | text |
-| 仓库地址 | `YOUR_REPO_URL_FIELD_ID` | text |
-| 分支名称 | `YOUR_BRANCH_FIELD_ID` | text |
 | 审核人 | `YOUR_REVIEWER_FIELD_ID` | user |
 | 审核意见 | `YOUR_REVIEW_COMMENT_FIELD_ID` | text |
 | 审核驳回理由 | `YOUR_REJECTION_REASON_FIELD_ID` | text |
@@ -1187,7 +1174,6 @@ echo "Test task created."
 | 结束时间 | `YOUR_EXEC_LOG_END_TIME_FIELD_ID` | datetime |
 | 执行输出 | `YOUR_EXEC_LOG_OUTPUT_FIELD_ID` | text |
 | 错误信息 | `YOUR_EXEC_LOG_ERROR_FIELD_ID` | text |
-| 提交记录 | `YOUR_EXEC_LOG_COMMIT_FIELD_ID` | text |
 | 触发方式 | `fldapMtbZ` | select |
 
 ### 7.3 Daemon CLI 参数参考

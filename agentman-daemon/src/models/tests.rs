@@ -155,7 +155,7 @@ fn test_execution_log_serialization() {
         ),
         execution_output: "Task completed successfully".to_string(),
         error_info: "".to_string(),
-        commit_hash: "abc123".to_string(),
+        summary: "abc123".to_string(),
         trigger_mode: TriggerMode::Auto,
     };
 
@@ -172,7 +172,7 @@ fn test_execution_log_serialization() {
     assert_eq!(deserialized.agent_type, ExecutionAgentType::ClaudeCode);
     assert_eq!(deserialized.execution_status, ExecutionStatus::Success);
     assert_eq!(deserialized.execution_output, "Task completed successfully");
-    assert_eq!(deserialized.commit_hash, "abc123");
+    assert_eq!(deserialized.summary, "abc123");
     assert_eq!(deserialized.trigger_mode, TriggerMode::Auto);
 }
 
@@ -189,6 +189,98 @@ fn test_runtime_status_serialization() {
     let status = RuntimeStatus::Busy;
     let json = serde_json::to_string(&status).unwrap();
     assert_eq!(json, "\"忙碌\"");
+}
+
+// ============== dependency.rs tests ==============
+
+#[test]
+fn test_dependency_type_display() {
+    assert_eq!(DependencyType::Blocking.to_string(), "阻塞");
+    assert_eq!(DependencyType::Related.to_string(), "相关");
+    assert_eq!(DependencyType::Optional.to_string(), "可选");
+}
+
+#[test]
+fn test_dependency_type_is_blocking() {
+    assert!(DependencyType::Blocking.is_blocking());
+    assert!(!DependencyType::Related.is_blocking());
+    assert!(!DependencyType::Optional.is_blocking());
+}
+
+#[test]
+fn test_dependency_check_result_can_execute() {
+    assert!(DependencyCheckResult::Ready.can_execute());
+    assert!(
+        DependencyCheckResult::ReadyWithWarnings {
+            warnings: vec!["warn".to_string()]
+        }
+        .can_execute()
+    );
+    assert!(
+        !DependencyCheckResult::Blocked {
+            unmet: vec!["dep1".to_string()]
+        }
+        .can_execute()
+    );
+}
+
+#[test]
+fn test_task_with_dependencies_deserialization() {
+    let json = r#"{
+        "record_id": "rec456",
+        "id": 2,
+        "任务标题": "Dependent Task",
+        "任务描述": "This task has dependencies",
+        "执行者类型": "agent",
+        "执行者": "daemon-001",
+        "任务状态": "待办",
+        "优先级": "P1",
+        "开始时间": null,
+        "截止时间": null,
+        "完成时间": null,
+        "最后催办时间": null,
+        "Agent类型": "codex",
+        "工作目录": "./workspace/dep",
+        "审核人": null,
+        "审核意见": "",
+        "审核驳回理由": "",
+        "重试次数": 0,
+        "催办次数": 0,
+        "预计工时": 1.0,
+        "分配的运行时": [{"id": "runtime001"}],
+        "前置任务": [{"id": "rec123"}, {"id": "rec789"}]
+    }"#;
+
+    let task: Task = serde_json::from_str(json).expect("Failed to deserialize task with deps");
+    assert_eq!(task.record_id, "rec456");
+    assert_eq!(task.title, "Dependent Task");
+    assert_eq!(task.dependencies.len(), 2);
+    assert_eq!(task.dependencies[0].id, "rec123");
+    assert_eq!(task.dependencies[1].id, "rec789");
+}
+
+#[test]
+fn test_task_without_dependencies_defaults_to_empty() {
+    let json = r#"{
+        "record_id": "rec789",
+        "id": 3,
+        "任务标题": "Independent Task",
+        "任务描述": "No dependencies",
+        "执行者类型": "agent",
+        "执行者": "daemon-001",
+        "任务状态": "待办",
+        "优先级": "P2",
+        "Agent类型": "cursor",
+        "工作目录": "./workspace/ind",
+        "审核意见": "",
+        "审核驳回理由": "",
+        "重试次数": 0,
+        "催办次数": 0,
+        "预计工时": 0.5
+    }"#;
+
+    let task: Task = serde_json::from_str(json).expect("Failed to deserialize task without deps");
+    assert!(task.dependencies.is_empty());
 }
 
 #[test]

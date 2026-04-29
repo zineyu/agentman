@@ -9,7 +9,7 @@
 |------|---------|---------|
 | `config.rs` | 配置解析、验证、默认值 | 纯Rust测试 |
 | `models/` | 序列化/反序列化、枚举转换 | 纯Rust测试 |
-| `git/` | Git命令构造、错误处理 | 临时git仓库 |
+
 | `agent/` | AgentFactory创建、适配器类型匹配 | Mock适配器 |
 | `utils.rs` | 工具函数 | 纯Rust测试 |
 
@@ -20,7 +20,7 @@
 |------|---------|------|
 | BaseClient | Token获取、缓存、重试 | mockito |
 | BaseClient | 任务查询、状态更新 | mockito |
-| TaskExecutor | 完整执行流程（mock git/agent） | mockito + 临时目录 |
+| TaskExecutor | 完整执行流程（mock agent） | mockito + 临时目录 |
 
 ### 3. 端到端测试（E2E Tests）
 目标：在真实飞书Base上验证完整流程
@@ -60,8 +60,7 @@ cargo test
 ### TC-002: 任务模型序列化
 验证 Task 结构体与 Base API JSON 的双向转换。
 
-### TC-003: Git仓库克隆
-验证 clone_repo 成功和失败场景。
+
 
 ### TC-004: Agent适配器选择
 验证 AgentType 到适配器的正确映射。
@@ -72,8 +71,7 @@ cargo test
 ### TC-006: 任务执行成功流
 Mock Base API，验证：
 1. 获取待办任务
-2. 克隆仓库
-3. Agent执行成功
+2. Agent执行成功
 4. 状态更新为"待审核"
 5. 执行日志写入
 
@@ -88,7 +86,7 @@ Mock Agent执行失败，验证：
 1. 驳回理由追加到描述
 2. 清空驳回理由字段
 3. 状态重置为"待办"
-4. 使用git pull而非clone
+4. 重新执行（不重复准备工作目录）
 
 ### TC-009: 工作流-审核驳回
 在真实Base上测试：

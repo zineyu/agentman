@@ -127,30 +127,25 @@ impl AgentAdapter for CommandLineAdapter {
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult>> + Send + 'a>> {
         Box::pin(async move {
             info!(
-                "{}",
-                rust_i18n::t!(
-                    "cli_adapter.executing_task",
-                    id = task.id,
-                    cli = self.name(),
-                    workspace = workspace.display()
-                )
+                "在工作空间 {} 中使用 {} CLI 执行任务 {}",
+                workspace.display(), self.name(), task.id
             );
 
             let mut cmd = self.build_command(task, workspace);
 
-            debug!("{}", rust_i18n::t!("cli_adapter.running_command", command = format!("{:?}", cmd)));
+            debug!("运行命令: {:?}", cmd);
 
             let output = match timeout(DEFAULT_TIMEOUT, cmd.output()).await {
                 Ok(Ok(output)) => output,
                 Ok(Err(e)) => {
-                    error!("{}", rust_i18n::t!("cli_adapter.failed_execute", cli = self.cli_name, error = e));
+                    error!("执行 {} 失败: {}", self.cli_name, e);
                     return Ok(ExecutionResult::failed(
                         String::new(),
-                        format!("{}", rust_i18n::t!("cli_adapter.process_execution_failed", error = e)),
+                        format!("进程执行失败: {}", e),
                     ));
                 }
                 Err(_) => {
-                    warn!("{}", rust_i18n::t!("cli_adapter.task_timeout", id = task.id));
+                    warn!("任务 {} 执行超时（30分钟）", task.id);
                     return Ok(ExecutionResult::timeout(String::new()));
                 }
             };
@@ -160,17 +155,17 @@ impl AgentAdapter for CommandLineAdapter {
             let combined_output = format!("{}{}", stdout, stderr);
 
             if output.status.success() {
-                info!("{}", rust_i18n::t!("cli_adapter.task_executed_success", id = task.id, cli = self.name()));
+                info!("任务 {} 使用 {} 执行成功", task.id, self.name());
                 Ok(ExecutionResult::success(combined_output))
             } else {
                 let exit_code = output.status.code().unwrap_or(-1);
                 warn!(
-                    "{}",
-                    rust_i18n::t!("cli_adapter.task_failed_exit_code", id = task.id, code = exit_code, cli = self.name())
+                    "任务 {} 使用 {} 执行失败，退出码: {}",
+                    task.id, self.name(), exit_code
                 );
                 Ok(ExecutionResult::failed(
                     combined_output,
-                    format!("{}", rust_i18n::t!("cli_adapter.process_exited", code = exit_code)),
+                    format!("进程退出，码: {}", exit_code),
                 ))
             }
         })
@@ -184,23 +179,23 @@ impl AgentAdapter for CommandLineAdapter {
     ) -> Pin<Box<dyn Future<Output = Result<ExecutionResult>> + Send + 'a>> {
         Box::pin(async move {
             info!(
-                "{}",
-                rust_i18n::t!("cli_adapter.executing_task_streaming", id = task.id, cli = self.name(), workspace = workspace.display())
+                "在工作空间 {} 中使用 {} CLI 流式执行任务 {}",
+                workspace.display(), self.name(), task.id
             );
 
             let mut cmd = self.build_command(task, workspace);
             cmd.stdout(Stdio::piped());
             cmd.stderr(Stdio::piped());
 
-            debug!("{}", rust_i18n::t!("cli_adapter.running_command", command = format!("{:?}", cmd)));
+            debug!("运行命令: {:?}", cmd);
 
             let mut child = match cmd.spawn() {
                 Ok(child) => child,
                 Err(e) => {
-                    error!("{}", rust_i18n::t!("cli_adapter.failed_spawn", cli = self.cli_name, error = e));
+                    error!("启动 {} 失败: {}", self.cli_name, e);
                     return Ok(ExecutionResult::failed(
                         String::new(),
-                        format!("{}", rust_i18n::t!("cli_adapter.process_spawn_failed", error = e)),
+                        format!("进程启动失败: {}", e),
                     ));
                 }
             };
@@ -245,15 +240,15 @@ impl AgentAdapter for CommandLineAdapter {
             {
                 Ok(Ok(status)) => status,
                 Ok(Err(e)) => {
-                    error!("{}", rust_i18n::t!("cli_adapter.failed_wait", cli = self.cli_name, error = e));
+                    error!("等待 {} 失败: {}", self.cli_name, e);
                     let output = combined_output.lock().await.clone();
                     return Ok(ExecutionResult::failed(
                         output,
-                        format!("{}", rust_i18n::t!("cli_adapter.process_wait_failed", error = e)),
+                        format!("进程等待失败: {}", e),
                     ));
                 }
                 Err(_) => {
-                    warn!("{}", rust_i18n::t!("cli_adapter.task_timeout", id = task.id));
+                    warn!("任务 {} 执行超时（30分钟）", task.id);
                     let _ = child.kill().await;
                     let output = combined_output.lock().await.clone();
                     return Ok(ExecutionResult::timeout(output));
@@ -263,17 +258,17 @@ impl AgentAdapter for CommandLineAdapter {
             let output = combined_output.lock().await.clone();
 
             if result.success() {
-                info!("{}", rust_i18n::t!("cli_adapter.task_executed_success", id = task.id, cli = self.name()));
+                info!("任务 {} 使用 {} 执行成功", task.id, self.name());
                 Ok(ExecutionResult::success(output))
             } else {
                 let exit_code = result.code().unwrap_or(-1);
                 warn!(
-                    "{}",
-                    rust_i18n::t!("cli_adapter.task_failed_exit_code", id = task.id, code = exit_code, cli = self.name())
+                    "任务 {} 使用 {} 执行失败，退出码: {}",
+                    task.id, self.name(), exit_code
                 );
                 Ok(ExecutionResult::failed(
                     output,
-                    format!("{}", rust_i18n::t!("cli_adapter.process_exited", code = exit_code)),
+                    format!("进程退出，码: {}", exit_code),
                 ))
             }
         })

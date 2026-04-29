@@ -8,7 +8,7 @@ fn test_execution_result_success() {
     assert!(result.success);
     assert_eq!(result.output, "Task output");
     assert!(result.error_info.is_none());
-    assert!(result.commit_hash.is_none());
+    assert!(result.summary.is_none());
 }
 
 #[test]
@@ -20,7 +20,7 @@ fn test_execution_result_failed() {
     assert!(!result.success);
     assert_eq!(result.output, "Partial output");
     assert_eq!(result.error_info, Some("Something went wrong".to_string()));
-    assert!(result.commit_hash.is_none());
+    assert!(result.summary.is_none());
 }
 
 #[test]

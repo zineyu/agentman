@@ -129,9 +129,9 @@ pub struct ExecutionLog {
     #[serde(rename = "错误信息")]
     pub error_info: String,
 
-    /// Git commit hash
+    /// 执行摘要 / 备注
     #[serde(rename = "提交记录")]
-    pub commit_hash: String,
+    pub summary: String,
 
     /// 触发方式: 手动/自动/工作流
     #[serde(rename = "触发方式")]

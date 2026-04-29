@@ -82,7 +82,7 @@ which cursor || echo "Cursor not found"
 ### 3. Clone Agentman Repository
 
 ```bash
-git clone <your-repo-url>
+# Download the project source code and navigate to the daemon directory
 cd agentman/agentman-daemon
 ```
 

@@ -210,7 +210,7 @@ async fn test_base_client_create_execution_log() {
         end_time: None,
         execution_output: String::new(),
         error_info: String::new(),
-        commit_hash: String::new(),
+        summary: String::new(),
         trigger_mode: TriggerMode::Auto,
     };
 
@@ -269,4 +269,68 @@ async fn test_base_client_clear_rejection_reason() {
     let client = BaseClient::new(&config).unwrap();
     let result = client.clear_task_rejection_reason("rec123").await;
     assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_base_client_get_tasks_status() {
+    let mut server = mockito::Server::new_async().await;
+    let config = create_test_config(&server.url());
+
+    let _token = server
+        .mock("POST", "/open-apis/auth/v3/tenant_access_token/internal")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(mock_token_response().to_string())
+        .create_async()
+        .await;
+
+    let status_response = json!({
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "items": [
+                {
+                    "record_id": "dep1",
+                    "fields": { "任务状态": "已完成" }
+                },
+                {
+                    "record_id": "dep2",
+                    "fields": { "任务状态": "进行中" }
+                },
+                {
+                    "record_id": "dep3",
+                    "fields": { "任务状态": "待办" }
+                }
+            ],
+            "total": 3
+        }
+    });
+
+    let _status = server
+        .mock("GET", mockito::Matcher::Regex(r"/open-apis/bitable/v1/apps/.*/tables/.*/records.*".to_string()))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(status_response.to_string())
+        .create_async()
+        .await;
+
+    let client = BaseClient::new(&config).unwrap();
+    let ids = vec!["dep1".to_string(), "dep2".to_string(), "dep3".to_string()];
+    let statuses = client.get_tasks_status(&ids).await.unwrap();
+
+    assert_eq!(statuses.len(), 3);
+    assert_eq!(statuses.get("dep1"), Some(&Status::Completed));
+    assert_eq!(statuses.get("dep2"), Some(&Status::InProgress));
+    assert_eq!(statuses.get("dep3"), Some(&Status::Todo));
+}
+
+#[tokio::test]
+async fn test_base_client_get_tasks_status_empty() {
+    let mut server = mockito::Server::new_async().await;
+    let config = create_test_config(&server.url());
+
+    let client = BaseClient::new(&config).unwrap();
+    let ids: Vec<String> = vec![];
+    let statuses = client.get_tasks_status(&ids).await.unwrap();
+    assert!(statuses.is_empty());
 }

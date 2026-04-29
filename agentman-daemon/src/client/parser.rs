@@ -33,6 +33,7 @@ pub fn parse_task_from_record(record: Value) -> Task {
         urge_count: get_u32_field(&fields, "催办次数"),
         estimated_hours: get_f64_field(&fields, "预计工时"),
         assigned_runtime: parse_link_field(&fields, "分配的运行时"),
+        dependencies: parse_link_field(&fields, "前置任务"),
     }
 }
 

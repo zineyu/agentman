@@ -30,7 +30,7 @@ impl BaseClient {
                 "结束时间": log.end_time.map(|t| t.and_utc().timestamp_millis()),
                 "执行输出": log.execution_output,
                 "错误信息": log.error_info,
-                "提交记录": log.commit_hash,
+                "提交记录": log.summary,
                 "触发方式": trigger_mode_to_string(&log.trigger_mode),
             }
         });
@@ -49,14 +49,7 @@ impl BaseClient {
             })?
             .to_string();
 
-        debug!(
-            "{}",
-            rust_i18n::t!(
-                "base_client.created_execution_log",
-                id = record_id,
-                seq = log.execution_sequence
-            )
-        );
+        debug!("已创建执行记录 {}（任务序号: {}）", record_id, log.execution_sequence);
 
         Ok(record_id)
     }
@@ -77,17 +70,14 @@ impl BaseClient {
                 "结束时间": log.end_time.map(|t| t.and_utc().timestamp_millis()),
                 "执行输出": log.execution_output,
                 "错误信息": log.error_info,
-                "提交记录": log.commit_hash,
+                "提交记录": log.summary,
             }
         });
 
         self.api_request(reqwest::Method::PUT, &path, Some(body), None)
             .await?;
 
-        debug!(
-            "{}",
-            rust_i18n::t!("base_client.updated_execution_log", id = record_id)
-        );
+        debug!("已更新执行记录 {}", record_id);
 
         Ok(())
     }

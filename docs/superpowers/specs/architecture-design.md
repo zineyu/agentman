@@ -68,8 +68,7 @@
 | 最后更新 | 日期时间 | 系统自动 | 只读 |
 | Agent类型 | 单选 | claude-code / codex / opencode / cursor / ... | agent任务必填 |
 | 工作目录 | 文本 | Agent执行时的本地路径 | agent任务必填 |
-| 仓库地址 | 文本 | Git仓库URL | 可空 |
-| 分支名称 | 文本 | Git分支 | 可空 |
+| 前置任务 | 关联 | 指向任务主表，依赖的任务 | 可空 |
 | 审核人 | 人员 | 待审核状态的审核责任人 | 可空 |
 | 审核意见 | 多行文本 | 审核反馈 | 可空 |
 | 审核驳回理由 | 多行文本 | 审核驳回时的具体原因 | 可空，驳回时必填 |
@@ -90,7 +89,6 @@
 | 结束时间 | 日期时间 | |
 | 执行输出 | 多行文本 | Agent的标准输出 |
 | 错误信息 | 多行文本 | 错误日志 |
-| 提交记录 | 文本 | Git commit hash |
 | 触发方式 | 单选 | 手动/自动/工作流 |
 
 ### 2.3 运行时表（Runtimes）
@@ -305,13 +303,6 @@ default_timeout = 30
 log_batch_size = 10        # 每10条日志批量回写
 log_realtime_keywords = ["error", "failed", "success", "commit", "push"]  # 包含这些关键词的日志实时回写
 
-[git]
-# 是否自动clone仓库
-auto_clone = true
-# 分支命名前缀
-branch_prefix = "agent-task-"
-# 是否自动创建分支
-auto_branch = true
 ```
 
 ### 4.4 工作模式
@@ -330,14 +321,11 @@ auto_branch = true
      * 执行者类型 = agent
      * 任务状态 = 待办
      * Agent类型 在 Daemon可用的CLI列表中
-     * 无未完成的依赖任务
+     * 无未完成的阻塞型依赖任务（前置任务状态=已完成）
    ↓
-5. 获取到可执行任务 → 更新状态为"进行中"
+5. 获取到可执行任务 → 检查前置依赖是否全部完成
    ↓
-6. 准备执行环境：
-   a. 如配置auto_clone=true且指定了仓库地址 → clone仓库到工作目录
-   b. 如配置auto_branch=true → 创建分支：{branch_prefix}{task_id}
-   c. 检出到目标分支
+6. 依赖检查通过 → 更新状态为"进行中"
    ↓
 7. 调用对应Agent CLI执行任务
    ↓
@@ -446,8 +434,6 @@ struct OpenCodeAdapter;
  │              │                │                │                │
  │              │←──更新状态=进行中──────────────│                │
  │              │                │                │                │
- │              │                │                │──clone仓库───→│
- │              │                │                │──创建分支────→│
  │              │                │                │                │
  │              │                │                │──调用Agent───→│
  │              │                │                │ (claude-code)  │

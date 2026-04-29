@@ -34,8 +34,7 @@
 | 最后催办时间 | datetime | 最后一次催办的时间戳 | YOUR_LAST_URGE_FIELD_ID |
 | Agent类型 | select(单选) | claude-code/codex/opencode/cursor/其他 | YOUR_AGENT_TYPE_FIELD_ID |
 | 工作目录 | text | Agent执行时的本地工作目录路径 | YOUR_WORKSPACE_FIELD_ID |
-| 仓库地址 | text(url) | Git仓库URL | YOUR_REPO_URL_FIELD_ID |
-| 分支名称 | text | Git分支名称，Agent会自动创建分支 | YOUR_BRANCH_FIELD_ID |
+| 前置任务 | link(单向) | 指向任务主表，表示执行前必须完成的任务 | YOUR_DEPENDENCIES_FIELD_ID |
 | 审核人 | user(单选) | 待审核状态的审核责任人 | YOUR_REVIEWER_FIELD_ID |
 | 审核意见 | text | 审核通过时的反馈或建议 | YOUR_REVIEW_COMMENT_FIELD_ID |
 | 审核驳回理由 | text | 审核驳回时的具体原因，Agent重试时会携带此上下文 | YOUR_REJECTION_REASON_FIELD_ID |
@@ -108,7 +107,6 @@ Agent Daemon运行时注册表，记录所有在线Daemon的状态和能力。
 | 结束时间 | datetime | 执行结束时间 | YOUR_EXEC_LOG_END_TIME_FIELD_ID |
 | 执行输出 | text | Agent的标准输出日志 | YOUR_EXEC_LOG_OUTPUT_FIELD_ID |
 | 错误信息 | text | 错误日志和异常信息 | YOUR_EXEC_LOG_ERROR_FIELD_ID |
-| 提交记录 | text | Git commit hash | YOUR_EXEC_LOG_COMMIT_FIELD_ID |
 | 触发方式 | select(单选) | 手动/自动/工作流 | fldapMtbZ |
 
 ---
@@ -141,8 +139,6 @@ Agent Daemon运行时注册表，记录所有在线Daemon的状态和能力。
   "优先级": "P1",
   "Agent类型": "claude-code",
   "工作目录": "/workspace/my-project",
-  "仓库地址": "https://github.com/example/repo",
-  "分支名称": "main",
   "预计工时": 4,
   "重试次数": 0,
   "催办次数": 0

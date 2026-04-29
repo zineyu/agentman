@@ -196,6 +196,10 @@ pub struct Task {
     pub estimated_hours: f64,
 
     /// 分配的运行时 (关联运行时表)
-    #[serde(rename = "分配的运行时")]
+    #[serde(default, rename = "分配的运行时")]
     pub assigned_runtime: Vec<LinkRecord>,
+
+    /// 前置任务 (关联任务主表，表示依赖的任务)
+    #[serde(default, rename = "前置任务")]
+    pub dependencies: Vec<LinkRecord>,
 }

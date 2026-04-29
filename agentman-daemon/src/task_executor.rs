@@ -13,6 +13,7 @@ use crate::client::BaseClient;
 use crate::config::DaemonConfig;
 use std::path::PathBuf;
 use crate::models::{
+    dependency::DependencyCheckResult,
     execution::{AgentType as ExecutionAgentType, ExecutionLog, ExecutionStatus, LinkRecord, TriggerMode},
     task::{AgentType, Status, Task},
 };
@@ -68,29 +69,29 @@ impl TaskExecutor {
     #[instrument(skip(self))]
     pub async fn run_once(&self,
     ) -> Result<()> {
-        info!("{}", rust_i18n::t!("task_executor.executing_once_mode"));
+        info!("执行单次模式任务");
         self.process_tasks().await
     }
 
     #[instrument(skip(self))]
     pub async fn run_loop(&self,
     ) -> Result<()> {
-        info!("{}", rust_i18n::t!("task_executor.start_execution_loop"));
+        info!("启动任务执行循环");
         let mut ticker = interval(Duration::from_secs(self.config.poll_interval_secs));
 
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
                     if self.shutdown.load(Ordering::Relaxed) {
-                        info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                        info!("收到关闭请求，停止执行循环");
                         break;
                     }
                     if let Err(e) = self.process_tasks().await {
-                        error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
+                        error!("处理任务时出错: {}", e);
                     }
                 }
                 _ = self.cancel_token.cancelled() => {
-                    info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                    info!("收到关闭请求，停止执行循环");
                     break;
                 }
             }
@@ -106,19 +107,80 @@ impl TaskExecutor {
             .get_pending_tasks(&self.config.runtime_id)
             .await?;
 
-        info!("{}", rust_i18n::t!("task_executor.found_pending_tasks", count = tasks.len()));
+        // 依赖检查：过滤掉有未完成阻塞依赖的任务
+        let ready_tasks = self.filter_tasks_by_dependencies(tasks).await?;
 
-        for task in tasks {
+        info!("找到 {} 个待办任务", ready_tasks.len());
+
+        for task in ready_tasks {
             if self.cancel_token.is_cancelled() {
-                info!("{}", rust_i18n::t!("task_executor.shutdown_requested"));
+                info!("收到关闭请求，停止执行循环");
                 break;
             }
             if let Err(e) = self.process_single_task(task).await {
-                error!("{}", rust_i18n::t!("task_executor.error_processing_tasks", error = e));
+                error!("处理任务时出错: {}", e);
             }
         }
 
         Ok(())
+    }
+
+    /// 检查任务依赖状态，过滤掉有未完成阻塞依赖的任务
+    #[instrument(skip(self, tasks))]
+    async fn filter_tasks_by_dependencies(
+        &self,
+        tasks: Vec<Task>,
+    ) -> Result<Vec<Task>> {
+        // 收集所有任务的前置任务 ID
+        let all_dep_ids: Vec<String> = tasks
+            .iter()
+            .flat_map(|t| t.dependencies.iter().map(|d| d.id.clone()))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        if all_dep_ids.is_empty() {
+            // 没有任何依赖，全部返回
+            return Ok(tasks);
+        }
+
+        // 批量查询前置任务状态
+        let dep_statuses = match self
+            .client
+            .get_tasks_status(&all_dep_ids)
+            .await
+        {
+            Ok(statuses) => statuses,
+            Err(e) => {
+                error!("查询依赖任务状态失败: {}", e);
+                // 查询失败时保守处理：认为所有任务都有未完成的依赖
+                return Ok(Vec::new());
+            }
+        };
+
+        let mut ready_tasks = Vec::new();
+        for task in tasks {
+            if task.dependencies.is_empty() {
+                ready_tasks.push(task);
+                continue;
+            }
+
+            let check_result = check_single_task_dependencies(&task, &dep_statuses);
+            match check_result {
+                DependencyCheckResult::Ready => {
+                    ready_tasks.push(task);
+                }
+                DependencyCheckResult::Blocked { unmet } => {
+                    info!("任务 {} 被阻塞，等待前置依赖完成: {}", task.id, unmet.join(", "));
+                }
+                DependencyCheckResult::ReadyWithWarnings { warnings } => {
+                    info!("任务 {} 可以执行，但前置依赖存在警告: {}", task.id, warnings.join(", "));
+                    ready_tasks.push(task);
+                }
+            }
+        }
+
+        Ok(ready_tasks)
     }
 
     #[instrument(skip(self, task), fields(task_id = task.id))]
@@ -127,10 +189,10 @@ impl TaskExecutor {
         mut task: Task,
     ) -> Result<()> {
         let task_id = task.record_id.clone();
-        info!("{}", rust_i18n::t!("task_executor.processing_task", id = task.id, name = task.title));
+        info!("正在处理任务 {}: {}", task.id, task.title);
 
         if task.record_id.is_empty() {
-            error!("{}", rust_i18n::t!("task_executor.empty_record_id", id = task.id));
+            error!("任务 {} 的 record_id 为空，跳过", task.id);
             return Err(TaskExecutorError::InvalidTask(
                 format!("Task {} has empty record_id", task.id)
             ));
@@ -139,14 +201,7 @@ impl TaskExecutor {
         // 检测是否是审核驳回后的重试
         let is_rejection_retry = !task.review_rejection_reason.is_empty();
         if is_rejection_retry {
-            info!(
-                "{}",
-                rust_i18n::t!(
-                    "task_executor.retrying_after_rejection",
-                    id = task.id,
-                    reason = task.review_rejection_reason
-                )
-            );
+            info!("任务 {} 因驳回而重试: {}", task.id, task.review_rejection_reason);
 
             // 将驳回理由追加到任务描述中，作为额外上下文
             task.description = format!(
@@ -162,7 +217,7 @@ impl TaskExecutor {
                 .clear_task_rejection_reason(&task_id)
                 .await
             {
-                error!("{}", rust_i18n::t!("task_executor.failed_clear_rejection", error = e));
+                error!("清空驳回理由失败: {}", e);
             }
         }
 
@@ -181,7 +236,7 @@ impl TaskExecutor {
             .update_task_status(&task_id, Status::InProgress, &status_message)
             .await
         {
-            error!("{}", rust_i18n::t!("task_executor.failed_update_status_in_progress", error = e));
+            error!("更新任务状态为进行中失败: {}", e);
             return Err(e.into());
         }
 
@@ -207,7 +262,7 @@ impl TaskExecutor {
             end_time: None,
             execution_output: String::new(),
             error_info: String::new(),
-            commit_hash: String::new(),
+            summary: String::new(),
             trigger_mode: TriggerMode::Auto,
         };
 
@@ -218,7 +273,7 @@ impl TaskExecutor {
         {
             Ok(id) => id,
             Err(e) => {
-                error!("{}", rust_i18n::t!("task_executor.failed_create_execution_log", error = e));
+                error!("创建执行日志失败: {}", e);
                 return Err(e.into());
             }
         };
@@ -228,10 +283,10 @@ impl TaskExecutor {
         ) {
             Ok(adapter) => adapter,
             Err(e) => {
-                error!("{}", rust_i18n::t!("task_executor.failed_create_adapter", error = e));
+                error!("创建 Agent 适配器失败: {}", e);
                 self.handle_execution_failure(
                     &task,
-                    &format!("{}", rust_i18n::t!("task_executor.adapter_creation_failed", error = e)),
+                    &format!("Agent 适配器创建失败: {}", e),
                     &log_record_id,
                 )
                 .await?;
@@ -266,7 +321,7 @@ impl TaskExecutor {
                                 end_time: None,
                                 execution_output: buf.clone(),
                                 error_info: String::new(),
-                                commit_hash: String::new(),
+                                summary: String::new(),
                                 trigger_mode: TriggerMode::Auto,
                             };
                             if let Err(e) = flush_client
@@ -274,7 +329,7 @@ impl TaskExecutor {
                                 )
                                 .await
                             {
-                                error!("{}", rust_i18n::t!("task_executor.failed_flush_log", error = e));
+                                error!("刷新执行日志失败: {}", e);
                             }
                         }
                     }
@@ -305,13 +360,13 @@ impl TaskExecutor {
         let execution_result = match result {
             Ok(result) => result,
             Err(e) => {
-                error!("{}", rust_i18n::t!("task_executor.agent_execution_error", error = e));
+                error!("Agent 执行错误: {}", e);
                 self.finalize_execution(
                     &task,
                     &log_record_id,
                     &mut execution_log,
                     false,
-                    &format!("{}", rust_i18n::t!("task_executor.agent_execution_error", error = e)),
+                    &format!("Agent 执行错误: {}", e),
                     &output_buffer.lock().await,
                 )
                 .await?;
@@ -333,20 +388,9 @@ impl TaskExecutor {
         .await?;
 
         if success {
-            info!(
-                "{}",
-                rust_i18n::t!("task_executor.task_completed_success", id = task.id)
-            );
+            info!("任务 {} 执行成功，状态设置为待审核", task.id);
         } else {
-            info!(
-                "{}",
-                rust_i18n::t!(
-                    "task_executor.task_failed_retry",
-                    id = task.id,
-                    current = task.retry_count + 1,
-                    max = MAX_RETRIES
-                )
-            );
+            info!("任务 {} 失败，重试次数: {}/{}", task.id, task.retry_count + 1, MAX_RETRIES);
         }
 
         Ok(())
@@ -378,7 +422,7 @@ impl TaskExecutor {
             .update_execution_log(log_record_id, execution_log)
             .await
         {
-            error!("{}", rust_i18n::t!("task_executor.failed_update_execution_log", error = e));
+            error!("更新执行日志失败: {}", e);
         }
 
         if success {
@@ -391,7 +435,7 @@ impl TaskExecutor {
                 )
                 .await
             {
-                error!("{}", rust_i18n::t!("task_executor.failed_update_status_pending_review", error = e));
+                error!("更新任务状态为待审核失败: {}", e);
                 return Err(e.into());
             }
         } else {
@@ -437,18 +481,164 @@ impl TaskExecutor {
             )
             .await
         {
-            error!("{}", rust_i18n::t!("task_executor.failed_update_status_failure", error = e));
+            error!("更新失败状态失败: {}", e);
             return Err(e.into());
         }
 
-        info!(
-            "{}",
-            rust_i18n::t!(
-                "task_executor.task_status_updated_after_failure",
-                id = task.id,
-                status = status
-            )
-        );
+        info!("任务 {} 失败后状态更新为 {}", task.id, status);
         Ok(())
+    }
+}
+
+/// 检查单个任务的依赖状态
+fn check_single_task_dependencies(
+    task: &Task,
+    dep_statuses: &std::collections::HashMap<String, Status>,
+) -> DependencyCheckResult {
+    let mut unmet = Vec::new();
+    let warnings = Vec::new();
+
+    for dep in &task.dependencies {
+        let dep_status = dep_statuses.get(&dep.id);
+        match dep_status {
+            Some(Status::Completed) => {
+                // 依赖已完成，正常
+            }
+            Some(other_status) => {
+                // 前置任务未完成（默认所有依赖均为阻塞型）
+                unmet.push(format!(
+                    "{} (状态: {})",
+                    dep.id,
+                    other_status
+                ));
+            }
+            None => {
+                // 查询不到依赖任务状态（可能已被删除）
+                unmet.push(format!(
+                    "{} (任务不存在)",
+                    dep.id
+                ));
+            }
+        }
+    }
+
+    if !unmet.is_empty() {
+        DependencyCheckResult::Blocked { unmet }
+    } else if !warnings.is_empty() {
+        DependencyCheckResult::ReadyWithWarnings { warnings }
+    } else {
+        DependencyCheckResult::Ready
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::task::LinkRecord;
+
+    fn create_test_task(id: u64, record_id: &str, deps: &[&str]) -> Task {
+        Task {
+            record_id: record_id.to_string(),
+            id,
+            title: format!("任务{}", id),
+            description: String::new(),
+            executor_type: crate::models::task::ExecutorType::Agent,
+            executor: "test".to_string(),
+            status: Status::Todo,
+            priority: crate::models::task::Priority::P2,
+            start_time: None,
+            deadline: None,
+            completed_at: None,
+            last_urge_time: None,
+            agent_type: None,
+            work_dir: String::new(),
+            reviewer: None,
+            review_comment: String::new(),
+            review_rejection_reason: String::new(),
+            retry_count: 0,
+            urge_count: 0,
+            estimated_hours: 0.0,
+            assigned_runtime: Vec::new(),
+            dependencies: deps.iter().map(|id| LinkRecord { id: id.to_string() }).collect(),
+        }
+    }
+
+    #[test]
+    fn test_check_deps_no_dependencies() {
+        let task = create_test_task(1, "rec1", &[]);
+        let statuses = std::collections::HashMap::new();
+        let result = check_single_task_dependencies(&task, &statuses);
+        assert_eq!(result, DependencyCheckResult::Ready);
+    }
+
+    #[test]
+    fn test_check_deps_all_completed() {
+        let task = create_test_task(1, "rec1", &["dep1", "dep2"]);
+        let mut statuses = std::collections::HashMap::new();
+        statuses.insert("dep1".to_string(), Status::Completed);
+        statuses.insert("dep2".to_string(), Status::Completed);
+        let result = check_single_task_dependencies(&task, &statuses);
+        assert_eq!(result, DependencyCheckResult::Ready);
+    }
+
+    #[test]
+    fn test_check_deps_one_unmet() {
+        let task = create_test_task(1, "rec1", &["dep1", "dep2"]);
+        let mut statuses = std::collections::HashMap::new();
+        statuses.insert("dep1".to_string(), Status::Completed);
+        statuses.insert("dep2".to_string(), Status::InProgress);
+        let result = check_single_task_dependencies(&task, &statuses);
+        match result {
+            DependencyCheckResult::Blocked { unmet } => {
+                assert_eq!(unmet.len(), 1);
+                assert!(unmet[0].contains("dep2"));
+                assert!(unmet[0].contains("进行中"));
+            }
+            _ => panic!("Expected Blocked, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_check_deps_missing_dep() {
+        let task = create_test_task(1, "rec1", &["dep1"]);
+        let statuses = std::collections::HashMap::new();
+        let result = check_single_task_dependencies(&task, &statuses);
+        match result {
+            DependencyCheckResult::Blocked { unmet } => {
+                assert_eq!(unmet.len(), 1);
+                assert!(unmet[0].contains("任务不存在"));
+            }
+            _ => panic!("Expected Blocked, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_check_deps_multiple_unmet() {
+        let task = create_test_task(1, "rec1", &["dep1", "dep2", "dep3"]);
+        let mut statuses = std::collections::HashMap::new();
+        statuses.insert("dep1".to_string(), Status::Completed);
+        statuses.insert("dep2".to_string(), Status::Todo);
+        statuses.insert("dep3".to_string(), Status::PendingReview);
+        let result = check_single_task_dependencies(&task, &statuses);
+        match result {
+            DependencyCheckResult::Blocked { unmet } => {
+                assert_eq!(unmet.len(), 2);
+            }
+            _ => panic!("Expected Blocked, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_check_deps_cancelled_dep() {
+        let task = create_test_task(1, "rec1", &["dep1"]);
+        let mut statuses = std::collections::HashMap::new();
+        statuses.insert("dep1".to_string(), Status::Cancelled);
+        let result = check_single_task_dependencies(&task, &statuses);
+        match result {
+            DependencyCheckResult::Blocked { unmet } => {
+                assert!(unmet[0].contains("已取消"));
+            }
+            _ => panic!("Expected Blocked, got {:?}", result),
+        }
     }
 }

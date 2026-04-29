@@ -17,7 +17,6 @@
 - [ ] 基础状态流转（待办→进行中→待审核→已完成）
 - [ ] 任务预分配机制
 - [ ] 日志回写（批量+实时混合策略）
-- [ ] 自动clone仓库+创建分支
 - [ ] 审核驳回后自动重试（最多3次）
 - [ ] Daemon心跳上报
 
@@ -86,12 +85,12 @@
   - `tracing` + `tracing-subscriber`
 - [ ] **TASK-2.3**: 配置文件解析
   - 支持 `config.toml` 和环境变量覆盖
-  - 配置项：daemon、feishu、polling、agents、execution、git
+  - 配置项：daemon、feishu、polling、agents、execution
 
 #### Day 3: 飞书Base API客户端
 - [ ] **TASK-2.4**: 实现BaseClient
   - 读取lark-cli配置获取access_token
-  - 封装HTTP请求（GET/POST/PATCH）
+  - 封装HTTP请求（GET/POST/PUT）
   - 错误处理和重试逻辑（指数退避）
   - API限流保护（令牌桶或简单QPS限制）
   - **关键方法**:
@@ -139,20 +138,10 @@
   - `ClaudeCodeAdapter` 实现
   - `OpenCodeAdapter` 实现（如时间允许）
   - 执行流程：
-    1. 准备环境（clone仓库、创建分支）
-    2. 构建提示词（任务描述 + 上下文）
-    3. 调用Agent CLI（使用tokio::process::Command）
+    1. 构建提示词（任务描述 + 上下文）
+    2. 调用Agent CLI（使用tokio::process::Command）
     4. 实时捕获stdout/stderr
     5. 监控执行状态
-- [ ] **TASK-3.4**: Git环境准备
-  - `GitPreparer` 模块
-  - 方法：`prepare_workspace(task)`
-    - 检查仓库是否已clone
-    - 如未clone，执行 `git clone`
-    - 创建分支：`git checkout -b agent-task-{task_id}`
-    - 切换工作目录到任务目录
-  - **验收标准**: 能正确clone仓库并创建分支
-
 #### Day 5: 日志回写系统
 - [ ] **TASK-3.5**: 实现LogWriter
   - 缓冲区：Vec<String>（最大10条）
@@ -222,7 +211,6 @@
 - [ ] **TASK-5.3**: 强化错误处理
   - API请求失败的重试（指数退避）
   - Agent CLI未找到的处理
-  - Git操作失败的处理
   - 工作目录权限问题
   - 长时间运行任务的超时处理
 - [ ] **TASK-5.4**: 优雅退出
@@ -302,7 +290,7 @@
 | 飞书Base | 待创建 | Week 1完成 |
 | lark-cli认证 | 待确认 | 需要用户确认已登录 |
 | Agent CLI安装 | 用户负责 | Claude Code/OpenCode需用户安装 |
-| Git仓库访问 | 用户负责 | Daemon需要仓库读写权限 |
+
 
 ### 风险应对
 | 风险 | 概率 | 影响 | 应对 |
